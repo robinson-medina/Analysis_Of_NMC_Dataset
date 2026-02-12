@@ -1,0 +1,15 @@
+slprj
+codegen
+*_rtw
+*.autosave
+*.r2016a
+*.bak
+*.asv
+*.gpx
+*.json
+*.slxc
+Archive
+.MATLABDriveTag
+*.pyc
+__pycache__/
+%LOCALAPPDATA%
