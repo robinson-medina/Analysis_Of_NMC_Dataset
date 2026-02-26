@@ -1,4 +1,4 @@
-function [checkupResistance_OhmTimeStamp, checkupResistance_Ohm] = extractResistanceValues(timeWithGaps, voltage, current, timeS, startTime, endTime, cellNum)
+function [checkupResistance_OhmTimeStamp, checkupResistance_Ohm,checkupResistenceFEC] = extractResistanceValues(timeWithGaps, voltage, current, timeS, startTime, endTime, cellNum, cellLabel)
 % extractResistanceValues - Calculate internal resistance from current pulses
 %
 % This function identifies high-current pulse segments and calculates DC
@@ -12,11 +12,15 @@ function [checkupResistance_OhmTimeStamp, checkupResistance_Ohm] = extractResist
 %   startTime    - Start datetime for analysis range
 %   endTime      - End datetime for analysis range
 %   cellNum      - Cell identifier string for plot title
-%   legends      - Cell array of legend strings from previous analysis
+%   cellLabel    - (Optional) Descriptive label from test plan
 %
 % Outputs:
 %   checkupResistanceTimeStamp - Datetime array of resistance measurement timestamps
 %   checkupResistance_Ohm          - Array of measured DC resistance values (Ω)
+
+if nargin < 8
+    cellLabel = '';
+end
 
 fprintf('\nExtracting resistance values from current pulses...\n');
 tic;  % Restart timer
@@ -47,9 +51,12 @@ if isempty(segments)
     warning('no segments found')
     checkupResistance_OhmTimeStamp=[];
     checkupResistance_Ohm=[];
+    checkupResistenceFEC=[];
     return
 end
 
+BatteryCapacity_Ah = 58;
+FullEquivalentCycles = cumtrapz(selectedTimeS,abs(selectedCurrent))/BatteryCapacity_Ah/3600/2;
 
 % Initialize figure for resistance analysis
 figure('Units','normalized', 'OuterPosition',[0 0 0.5 1]); % Create a figure that takes up half the screen width
@@ -112,11 +119,22 @@ for i = 1:length(segments)
     DeltaVoltage_V = mean(segmentVoltage(end-AverageLength:end)) - mean(segmentVoltage(1:AverageLength));
     DeltaCurrent_A = mean(segmentCurrent(end-AverageLength:end)) - mean(segmentCurrent(1:AverageLength));
     checkupResistance_Ohm(i) = (DeltaVoltage_V) / (DeltaCurrent_A);
+    checkupResistenceFEC(i) = FullEquivalentCycles(segmentIndices(1));
 end
-sgtitle(['30s Resistance Analysis - V Response to I Pulses ' cellNum],'interpreter','none');
+if isempty(cellLabel)
+    sgtitle(['30s Resistance Analysis - V Response to I Pulses ' cellNum],'interpreter','none');
+else
+    sgtitle(['30s Resistance Analysis - V Response to I Pulses ' cellNum ' - ' cellLabel],'interpreter','none');
+end
 lgd = legend(string(checkupResistance_OhmTimeStamp));
 lgd.Location = 'best';
 fprintf('Resistance extraction complete. (Elapsed: %.2f s)\n', toc);
+
+% Remove NaT entries from output arrays
+validIdx = ~isnat(checkupResistance_OhmTimeStamp);
+checkupResistance_OhmTimeStamp = checkupResistance_OhmTimeStamp(validIdx);
+checkupResistance_Ohm = checkupResistance_Ohm(validIdx);
+checkupResistenceFEC = checkupResistenceFEC(validIdx);
 
 end
 

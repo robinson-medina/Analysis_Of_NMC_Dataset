@@ -16,7 +16,7 @@ import warnings
 
 
 def extract_resistance_values(time_with_gaps, voltage, current, time_s, 
-                              start_time, end_time, cell_num):
+                              start_time, end_time, cell_num, cell_label=''):
     """
     Calculate internal resistance from current pulses.
     
@@ -39,6 +39,8 @@ def extract_resistance_values(time_with_gaps, voltage, current, time_s,
         End datetime for analysis range
     cell_num : str
         Cell identifier string for plot title
+    cell_label : str, optional
+        Descriptive label from test plan (default: '')
     
     Returns
     -------
@@ -46,6 +48,8 @@ def extract_resistance_values(time_with_gaps, voltage, current, time_s,
         Datetime array of resistance measurement timestamps
     checkup_resistance : numpy.ndarray
         Array of measured DC resistance values (Ω)
+    checkup_resistance_fec : numpy.ndarray
+        Array of FEC values at resistance measurements
     """
     
     print('\nExtracting resistance values from current pulses...')
@@ -78,11 +82,19 @@ def extract_resistance_values(time_with_gaps, voltage, current, time_s,
     # Return empty arrays if no segments found
     if len(segments) == 0:
         warnings.warn('no segments found')
-        return np.array([]), np.array([])
+        return np.array([]), np.array([]), np.array([])
+    
+    # Calculate Full Equivalent Cycles using cumtrapz over time (to match MATLAB)
+    battery_capacity_ah = 58
+    # Use time_s for integration, ensure it's a numpy array
+    time_s = np.asarray(time_s)
+    abs_current = np.abs(np.nan_to_num(current))
+    full_equivalent_cycles = np.concatenate(([0], np.cumtrapz(abs_current, time_s))) / battery_capacity_ah / 3600 / 2
     
     # Initialize output arrays
     checkup_resistance_timestamp = []
     checkup_resistance = []
+    checkup_resistance_fec = []
     
     # Initialize figure for resistance analysis (half screen width, full height)
     fig, (ax1, ax2) = plt.subplots(2, 1)
@@ -154,6 +166,7 @@ def extract_resistance_values(time_with_gaps, voltage, current, time_s,
         delta_i = np.mean(segment_current[-average_length:]) - np.mean(segment_current[:average_length])
         resistance = delta_v / delta_i if delta_i != 0 else np.nan
         checkup_resistance.append(resistance)
+        checkup_resistance_fec.append(full_equivalent_cycles[segment_indices[0]])
     
     # Format subplot 1
     ax1.set_xlabel('Time [s]')
@@ -166,7 +179,10 @@ def extract_resistance_values(time_with_gaps, voltage, current, time_s,
     ax2.grid(True, alpha=0.3)
     
     # Add title to figure
-    fig.suptitle(f'30s Resistance Analysis - V Response to I Pulses {cell_num}')
+    if cell_label:
+        fig.suptitle(f'30s Resistance Analysis - V Response to I Pulses {cell_num} - {cell_label}')
+    else:
+        fig.suptitle(f'30s Resistance Analysis - V Response to I Pulses {cell_num}')
     
     # Add legend with timestamps
     if len(checkup_resistance_timestamp) > 0:
@@ -183,8 +199,15 @@ def extract_resistance_values(time_with_gaps, voltage, current, time_s,
     # Convert lists to numpy arrays
     checkup_resistance_timestamp = np.array(checkup_resistance_timestamp)
     checkup_resistance = np.array(checkup_resistance)
+    checkup_resistance_fec = np.array(checkup_resistance_fec)
     
-    return checkup_resistance_timestamp, checkup_resistance
+    # Remove NaT entries from output arrays
+    valid_idx = pd.notna(checkup_resistance_timestamp)
+    checkup_resistance_timestamp = checkup_resistance_timestamp[valid_idx]
+    checkup_resistance = checkup_resistance[valid_idx]
+    checkup_resistance_fec = checkup_resistance_fec[valid_idx]
+    
+    return checkup_resistance_timestamp, checkup_resistance, checkup_resistance_fec
 
 
 def _find_segments_min_max(indices, average_length, selected_time, min_duration_s, max_duration_s):

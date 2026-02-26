@@ -17,7 +17,7 @@ from findSegmentsMinMax import find_segments_min_max
 
 
 def analyze_dvdt_after_charge(selected_time, selected_voltage, selected_current, 
-                              selected_time_s, constant_current_value, cell_num):
+                              selected_time_s, constant_current_value, cell_num, cell_label=''):
     """
     Analyze voltage relaxation rate after fast charge by examining dV/dt.
     
@@ -35,6 +35,8 @@ def analyze_dvdt_after_charge(selected_time, selected_voltage, selected_current,
         Target current value to find (A)
     cell_num : str
         Cell identifier string for plot title
+    cell_label : str, optional
+        Descriptive label from test plan (default: '')
     
     Returns
     -------
@@ -94,7 +96,7 @@ def analyze_dvdt_after_charge(selected_time, selected_voltage, selected_current,
         segment_time_s = segment_time_s - segment_time_s[0]  # Normalize to start at 0
         
         # Calculate smoothed dV/dt
-        window_size = 50
+        window_size = 5
         dv = np.gradient(segment_voltage)
         dt = np.gradient(segment_time_s)
         gradient_ratio = dv / dt
@@ -151,7 +153,10 @@ def analyze_dvdt_after_charge(selected_time, selected_voltage, selected_current,
     ax2.legend(legend_entries, loc='best')
     
     # Add title to figure
-    fig.suptitle(f'dV/dt in discharge After Fast Charge {cell_num}', fontsize=14)
+    if cell_label:
+        fig.suptitle(f'dV/dt in discharge After Fast Charge {cell_num} - {cell_label}', fontsize=14)
+    else:
+        fig.suptitle(f'dV/dt in discharge After Fast Charge {cell_num}', fontsize=14)
     plt.tight_layout()
     plt.draw()
     plt.pause(0.001)

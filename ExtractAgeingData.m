@@ -20,12 +20,13 @@ addpath("..\Functions\")
 
 %% Configuration
 DesiredFolder = '\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\Cyclic_ageing_data';
-% DesiredFolder = '\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\Calendar_ageing_data';
+DesiredFolder = '\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\Calendar_ageing_data';
 Folders = dir([DesiredFolder '\*_Cell_*']);
 % cellNum = 'A3.13_Cell_17';
-cellNum = 'A3.11_Cell_8'; % ligth A3 file
+% cellNum = 'A3.11_Cell_8'; % ligth A3 file
+% cellNum = 'A3.12_Cell_47';
 cellNum = 'A2.08_Cell_35'; % light A2 file
-cellNum = 'A1.07_Cell_74';
+cellNum = 'A2.07_Cell_34';
 
 % Load processed battery test data from .mat file
 
@@ -33,11 +34,14 @@ cellNum = 'A1.07_Cell_74';
 allResistanceData = {};
 allDVdtData = {};
 allCapacityData = {};
-allDQdVData = {};
-
+allDQdVData = {};celNumIndx=1;
+% 
 for celNumIndx = 1:length(Folders)
     cellNum = Folders(celNumIndx).name;
     close all
+    
+    % Generate descriptive label for cell based on ageing test plan
+    cellLabel = getCellLabel(cellNum);
   
     fprintf('\n========================================\n');
     fprintf('Battery Test Data Analysis for NextBMS journal\n');
@@ -103,7 +107,7 @@ for celNumIndx = 1:length(Folders)
 
     %% Plot Overview Data
     % Create a multi-panel plot showing current, voltage, temperature, and capacity
-    plotOverviewData(timeWithGaps, current, voltage, cellTemp, chamberTemp, cumulative_integral, cellNum);
+    plotOverviewData(timeWithGaps, current, voltage, cellTemp, chamberTemp, cumulative_integral, cellNum, cellLabel);
     figOverview = gcf;
 
 
@@ -129,19 +133,19 @@ for celNumIndx = 1:length(Folders)
     windowSize = 5000;
 
     % Analyze discharge curves and calculate checkup capacity
-    [checkupCapacityTimeStamp, checkupCapacity_Ah,legends,SegmentVoltage_V,dQdV_AperVs,SegmentCapacity_Ah] = analyzeCheckupDischarge(segments, selectedTime, selectedVoltage, selectedCurrent, selectedTimeS, windowSize, cellNum);
+    [checkupCapacityTimeStamp, checkupCapacity_Ah,checkupCapacityFEC,legends,SegmentVoltage_V,dQdV_AperVs,SegmentCapacity_Ah] = analyzeCheckupDischarge(segments, selectedTime, selectedVoltage, selectedCurrent, selectedTimeS, windowSize, cellNum, cellLabel);
     figCheckupDischarge = gcf;
 
     %% Extract Resistance Values
     % Calculate internal resistance from voltage drop during current pulses
     % Uses high-current (-58 A) pulses with 30s duration to measure DC resistance
-    [checkupResistanceTimeStamp, checkupResistance_Ohm] = extractResistanceValues(timeWithGaps, voltage, current, timeS, startTime, endTime, cellNum);
+    [checkupResistanceTimeStamp, checkupResistance_Ohm,checkupResistenceFEC] = extractResistanceValues(timeWithGaps, voltage, current, timeS, startTime, endTime, cellNum, cellLabel);
     figResistance = gcf;
 
     %% Plot Capacity and Resistance Trending
     % Display capacity fade and resistance growth over time
 
-    plotCapacityAndResistanceTrending(checkupCapacityTimeStamp, checkupCapacity_Ah, checkupResistanceTimeStamp, checkupResistance_Ohm, cellNum);
+    plotCapacityAndResistanceTrending(checkupCapacityTimeStamp, checkupCapacity_Ah, checkupCapacityFEC, checkupResistanceTimeStamp, checkupResistance_Ohm, checkupResistenceFEC, cellNum, cellLabel);
     figCapResTrend = gcf;
 
 
@@ -151,7 +155,7 @@ for celNumIndx = 1:length(Folders)
     constantCurrentValue_A = -11.6;
 
     % Perform dV/dt analysis
-    [plottedSegments, dVdtData] = analyzeDVdtAfterCharge(selectedTime, selectedVoltage, selectedCurrent, selectedTimeS, constantCurrentValue_A, cellNum);
+    [plottedSegments, dVdtData] = analyzeDVdtAfterCharge(selectedTime, selectedVoltage, selectedCurrent, selectedTimeS, constantCurrentValue_A, cellNum, cellLabel);
     figDVdt = gcf;
 
     %% Save All Figures
@@ -173,26 +177,29 @@ for celNumIndx = 1:length(Folders)
     fprintf('All figures saved to: %s\n', savePath);
     fprintf('========================================\n');
 
-    % Accumulate resistance data
+    % Accumulate resistance data (skip NaN timestamps)
     numResistancePoints = length(checkupResistanceTimeStamp);
     for i = 1:numResistancePoints
-        allResistanceData{end+1, 1} = cellNum;
-        allResistanceData{end, 2} = checkupResistanceTimeStamp(i);
-        allResistanceData{end, 3} = checkupResistance_Ohm(i);
+        if ~isnat(checkupResistanceTimeStamp(i))
+            allResistanceData{end+1, 1} = cellNum;
+            allResistanceData{end, 2} = cellLabel;
+            allResistanceData{end, 3} = checkupResistanceTimeStamp(i);
+            allResistanceData{end, 4} = checkupResistance_Ohm(i);
+            allResistanceData{end, 5} = checkupResistenceFEC(i);
+        end
     end
 
 
 
-    % Accumulate capacity data
+    % Accumulate capacity data (skip NaN timestamps)
     numCapacityPoints = length(checkupCapacityTimeStamp);
     for i = 1:numCapacityPoints
-        allCapacityData{end+1, 1} = cellNum;
-        allCapacityData{end, 2} = checkupCapacityTimeStamp(i);
-        allCapacityData{end, 3} = checkupCapacity_Ah(i);
-        if i <= length(legends)
-            allCapacityData{end, 4} = legends{i};
-        else
-            allCapacityData{end, 4} = '';
+        if ~isnat(checkupCapacityTimeStamp(i))
+            allCapacityData{end+1, 1} = cellNum;
+            allCapacityData{end, 2} = cellLabel;
+            allCapacityData{end, 3} = checkupCapacityTimeStamp(i);
+            allCapacityData{end, 4} = checkupCapacity_Ah(i);
+            allCapacityData{end, 5} = checkupCapacityFEC(i);
         end
     end
 
@@ -205,17 +212,17 @@ fprintf('========================================\n');
 
 % Create and save Resistance table
 if ~isempty(allResistanceData)
-    resistanceTable = cell2table(allResistanceData, 'VariableNames', {'CellNum', 'CheckupResistanceTimeStamp', 'CheckupResistance_Ohm'});
-    writetable(resistanceTable, fullfile(DesiredFolder, 'AllCells_ResistanceData.csv'));
-    fprintf('Resistance data saved to: %s\n', fullfile(DesiredFolder, 'AllCells_ResistanceData.csv'));
+    resistanceTable = cell2table(allResistanceData, 'VariableNames', {'CellNum', 'CellLabel', 'CheckupResistanceTimeStamp', 'CheckupResistance_Ohm', 'CheckupResistanceFEC'});
+    writetable(resistanceTable, fullfile(DesiredFolder, ['OverviewResistanceData_' num2str(celNumIndx) 'cell.csv']));
+    fprintf('Resistance data saved to: %s\n', fullfile(DesiredFolder, ['OverviewResistanceData_' num2str(celNumIndx) 'cell.csv']));
 end
 
 
 % Create and save Capacity table
 if ~isempty(allCapacityData)
-    capacityTable = cell2table(allCapacityData, 'VariableNames', {'CellNum', 'CheckupCapacityTimeStamp', 'CheckupCapacity_Ah', 'Legends'});
-    writetable(capacityTable, fullfile(DesiredFolder, 'AllCells_CapacityData.csv'));
-    fprintf('Capacity data saved to: %s\n', fullfile(DesiredFolder, 'AllCells_CapacityData.csv'));
+    capacityTable = cell2table(allCapacityData, 'VariableNames', {'CellNum', 'CellLabel', 'CheckupCapacityTimeStamp', 'CheckupCapacity_Ah', 'CheckupCapacityFEC'});
+    writetable(capacityTable, fullfile(DesiredFolder, ['OverviewCapacityData_' num2str(celNumIndx) 'cell.csv']));
+    fprintf('Capacity data saved to: %s\n', fullfile(DesiredFolder, ['OverviewCapacityData_' num2str(celNumIndx) 'cell.csv']));
 end
 
 

@@ -17,7 +17,7 @@ import time
 
 def analyze_checkup_discharge(segments, selected_time, selected_voltage, 
                               selected_current, selected_time_s, 
-                              window_size, cell_num):
+                              window_size, cell_num, cell_label=''):
     """
     Analyze and plot discharge curves for checkup cycles.
     
@@ -40,6 +40,8 @@ def analyze_checkup_discharge(segments, selected_time, selected_voltage,
         Window size for moving average in dQ/dV calculation
     cell_num : str
         Cell identifier string for plot title
+    cell_label : str, optional
+        Descriptive label from test plan (default: '')
     
     Returns
     -------
@@ -47,6 +49,8 @@ def analyze_checkup_discharge(segments, selected_time, selected_voltage,
         Datetime array of checkup timestamps
     checkup_capacity : numpy.ndarray
         Array of measured discharge capacities (Ah)
+    checkup_capacity_fec : numpy.ndarray
+        Array of FEC values at capacity measurements
     legends : list of str
         List of legend strings
     """
@@ -54,10 +58,19 @@ def analyze_checkup_discharge(segments, selected_time, selected_voltage,
     # Initialize output arrays
     checkup_capacity_timestamp = []
     checkup_capacity = []
+    checkup_capacity_fec = []
     legends = []
     
     # Create figure for plotting
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10))
+    
+    # Calculate Full Equivalent Cycles using cumtrapz over time (to match MATLAB)
+    battery_capacity_ah = 58
+    # Ensure selected_time_s is a numpy array
+    selected_time_s = np.asarray(selected_time_s)
+    abs_current = np.abs(np.nan_to_num(selected_current))
+    # Use cumtrapz for integration over time
+    full_equivalent_cycles = np.concatenate(([0], np.cumtrapz(abs_current, selected_time_s))) / battery_capacity_ah / 3600 / 2
     
     # Define line styles for plot variation
     line_styles = ['-', '--', ':', '-.']
@@ -80,9 +93,10 @@ def analyze_checkup_discharge(segments, selected_time, selected_voltage,
         segment_time = selected_time[segment_indices]
         segment_time_s = selected_time_s[segment_indices]
         segment_time_s = segment_time_s - segment_time_s[0]  # Normalize to start at 0
+        segment_fec = full_equivalent_cycles[segment_indices]
         
-        # Only process complete discharge cycles (ending below 2.76V)
-        if segment_voltage[-1] < 2.76:
+        # Only process complete discharge cycles (ending below 2.76V and starting above 4.1V)
+        if segment_voltage[-1] < 2.76 and segment_voltage[0] > 4.1:
             # Calculate discharge capacity
             discharge_capacity = -cumtrapz(segment_current, segment_time_s, initial=0) / 3600
             
@@ -115,10 +129,11 @@ def analyze_checkup_discharge(segments, selected_time, selected_voltage,
             # Store capacity and timestamp for trending
             checkup_capacity_timestamp.append(segment_time[0])
             checkup_capacity.append(np.max(discharge_capacity))
+            checkup_capacity_fec.append(segment_fec[0])
             
             # Create legend entry
-            time_str = pd.Timestamp(segment_time[0]).strftime('%Y-%m-%d %H:%M:%S')
-            legends.append(f'Check up time {time_str}')
+            time_str = pd.Timestamp(segment_time[0]).strftime('%y-%m-%dT%H:%M')
+            legends.append(f' {time_str}')
     
     # Format subplot 1
     ax1.set_xlabel('Discharge Capacity [Ah]')
@@ -132,7 +147,10 @@ def analyze_checkup_discharge(segments, selected_time, selected_voltage,
     ax2.grid(True, alpha=0.3)
     
     # Add title to figure
-    fig.suptitle(f'Checkup Analysis {cell_num}', fontsize=14)
+    if cell_label:
+        fig.suptitle(f'Checkup Analysis {cell_num} - {cell_label}', fontsize=14)
+    else:
+        fig.suptitle(f'Checkup Analysis {cell_num}', fontsize=14)
     plt.tight_layout()
     plt.show(block=False)
     plt.pause(0.001)  # Brief pause to ensure plot renders
@@ -143,8 +161,15 @@ def analyze_checkup_discharge(segments, selected_time, selected_voltage,
     # Convert lists to numpy arrays
     checkup_capacity_timestamp = np.array(checkup_capacity_timestamp)
     checkup_capacity = np.array(checkup_capacity)
+    checkup_capacity_fec = np.array(checkup_capacity_fec)
     
-    return checkup_capacity_timestamp, checkup_capacity, legends
+    # Remove NaT entries from output arrays
+    valid_idx = pd.notna(checkup_capacity_timestamp)
+    checkup_capacity_timestamp = checkup_capacity_timestamp[valid_idx]
+    checkup_capacity = checkup_capacity[valid_idx]
+    checkup_capacity_fec = checkup_capacity_fec[valid_idx]
+    
+    return checkup_capacity_timestamp, checkup_capacity, checkup_capacity_fec, legends
 
 
 def _moving_average(data, window_size):

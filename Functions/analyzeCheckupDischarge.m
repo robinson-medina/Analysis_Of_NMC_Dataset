@@ -1,4 +1,4 @@
-function [checkupCapacity_AhTimeStamp, checkupCapacity_Ah, legends,SegmentVoltage_V,dQdV_AperVs,SegmentCapacity_Ah] = analyzeCheckupDischarge(segments, selectedTime, selectedVoltage, selectedCurrent, selectedTimeS, windowSize, cellNum)
+function [checkupCapacity_AhTimeStamp, checkupCapacity_Ah, checkupCapacityFEC, legends,SegmentVoltage_V,dQdV_AperVs,SegmentCapacity_Ah] = analyzeCheckupDischarge(segments, selectedTime, selectedVoltage, selectedCurrent, selectedTimeS, windowSize, cellNum, cellLabel)
 % analyzeCheckupDischarge - Analyze and plot discharge curves for checkup cycles
 %
 % This function processes constant-current discharge segments to calculate
@@ -12,11 +12,16 @@ function [checkupCapacity_AhTimeStamp, checkupCapacity_Ah, legends,SegmentVoltag
 %   selectedTimeS    - Time array in seconds for selected range
 %   windowSize       - Window size for moving average in dQ/dV calculation
 %   cellNum          - Cell identifier string for plot title
+%   cellLabel        - (Optional) Descriptive label from test plan
 %
 % Outputs:
 %   checkupCapacity_AhTimeStamp - Datetime array of checkup timestamps
 %   checkupCapacity_Ah          - Array of measured discharge capacities (Ah)
 %   legends                  - Cell array of legend strings
+
+if nargin < 8
+    cellLabel = '';
+end
 
 % Loop through each segment and analyze discharge curves
 fprintf('Analyzing discharge curves: ');
@@ -33,9 +38,13 @@ if isempty(segments)
     warning('There are no checkup segments ')
     checkupCapacity_AhTimeStamp=[];
     checkupCapacity_Ah=[]; 
+    checkupCapacityFEC=[];
     legends='';
     return
 end
+
+BatteryCapacity_Ah = 58;
+FullEquivalentCycles = cumtrapz(selectedTimeS,abs(selectedCurrent))/BatteryCapacity_Ah/3600/2;
 
 ValidSegCount=1;
 for i = 1:length(segments)
@@ -52,6 +61,7 @@ for i = 1:length(segments)
     segmentTime = selectedTime(segmentIndices);
     segmentTimeS = selectedTimeS(segmentIndices);
     segmentTimeS = segmentTimeS - segmentTimeS(1);  % Normalize to start at 0
+    segmentFEC = FullEquivalentCycles(segmentIndices);
 
     % Only process complete discharge cycles (ending below 2.76V)
     if segmentVoltage(end) < 2.76 && segmentVoltage(1) > 4.1
@@ -84,6 +94,7 @@ for i = 1:length(segments)
         % Store capacity and timestamp for trending
         checkupCapacity_AhTimeStamp(i) = segmentTime(1);
         checkupCapacity_Ah(i) = -min(cumtrapz(segmentTimeS, segmentCurrent)/3600);
+        checkupCapacityFEC(i) = segmentFEC(1);
         CheckedDate = segmentTime(1);
         CheckedDate.Format = 'yy-MM-dd''T''HH:mm';
         legends = {legends{:} [' ' char(CheckedDate)]};
@@ -94,12 +105,23 @@ end
 if isempty(checkupCapacity_AhTimeStamp)
     checkupCapacity_AhTimeStamp=0;
     checkupCapacity_Ah=0;
+    checkupCapacityFEC=0;
 end
-sgtitle(['Checkup Analysis' cellNum],'interpreter','none');
+if isempty(cellLabel)
+    sgtitle(['Checkup Analysis ' cellNum],'interpreter','none');
+else
+    sgtitle(['Checkup Analysis ' cellNum ' - ' cellLabel],'interpreter','none');
+end
 lgd = legend(legends);
 % lgd.Orientation = 'horizontal';
 lgd.Location = 'best';
 hold off;
 fprintf('\nCheckup capacity analysis complete. (Elapsed: %.2f s)\n', toc);
+
+% Remove NaT entries from output arrays
+validIdx = ~isnat(checkupCapacity_AhTimeStamp);
+checkupCapacity_AhTimeStamp = checkupCapacity_AhTimeStamp(validIdx);
+checkupCapacity_Ah = checkupCapacity_Ah(validIdx);
+checkupCapacityFEC = checkupCapacityFEC(validIdx);
 
 end

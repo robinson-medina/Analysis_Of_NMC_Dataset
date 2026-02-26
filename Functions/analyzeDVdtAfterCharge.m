@@ -1,4 +1,4 @@
-function [plottedSegments, dVdtData] = analyzeDVdtAfterCharge(selectedTime, selectedVoltage, selectedCurrent, selectedTimeS, constantCurrentValue, cellNum)
+function [plottedSegments, dVdtData] = analyzeDVdtAfterCharge(selectedTime, selectedVoltage, selectedCurrent, selectedTimeS, constantCurrentValue, cellNum, cellLabel)
 % analyzeDVdtAfterCharge - Analyze voltage relaxation rate after fast charge
 %
 % Inputs:
@@ -8,14 +8,26 @@ function [plottedSegments, dVdtData] = analyzeDVdtAfterCharge(selectedTime, sele
 %   selectedTimeS - Time array in seconds
 %   constantCurrentValue - Target current value to find [A]
 %   cellNum - Cell identifier string
+%   cellLabel - (Optional) Descriptive label from test plan
 %
 % Outputs:
 %   plottedSegments - Cell array containing segment information
 %   dVdtData - Cell array containing dV/dt data for each segment
 
+if nargin < 7
+    cellLabel = '';
+end
+
 % Parameters
 tolerance = 0.1;
 constantCurrentIndices = abs(selectedCurrent - constantCurrentValue) <= tolerance;
+
+if contains(cellNum,'A1') || contains(cellNum,'A2') % different sensors were used in these experiments, filtering level is also different. 
+    windowSize = 5;
+else
+    windowSize = 50;
+end
+
 
 % Filter for segments of appropriate length (900-1500 points)
 minSegmentLength = 900;
@@ -80,8 +92,8 @@ for idx = 1:numSegmentsToPlot
 
 
     % Calculate smoothed dV/dt
-    windowSize = 50;
-    movMeanGradientRatio = movmean(gradient(InterpolationVoltage_V) ./ gradient(InterpolationTime_s), windowSize);
+
+    movMeanGradientRatio = movmean((gradient(InterpolationVoltage_V) ./ gradient(InterpolationTime_s)),windowSize);
 
     % Calculate color for this segment
     segmentColor = [i/length(segments), 0, 1-i/length(segments)];
@@ -93,24 +105,24 @@ for idx = 1:numSegmentsToPlot
     drawnow;
 
     % plot voltage
-    subplot(2,3,4)
+    ax(1) = subplot(2,3,4);
     hold on
     plot(InterpolationTime_s,InterpolationVoltage_V,'Color', segmentColor);
     xlabel('Time [s]');
     ylabel('V [V]');
 
 % plot current
-    subplot(2,3,5)
+    ax(2) =subplot(2,3,5);
     hold on
     plot(segmentTimeS,segmentCurrent,'Color', segmentColor);  
     xlabel('Time [s]');
     ylabel('I [A]');
     % Plot dV/dt with color gradient
 
-    subplot(2,3,6)
+    ax(3) = subplot(2,3,6);
     hold on
     dVdt = movMeanGradientRatio(1:end);
-    plot(InterpolationTime_s, dVdt, 'Color', segmentColor);
+     plot(InterpolationTime_s, dVdt, 'Color', segmentColor);
     ylim([-0.002 0])
     xlim([0 500])
     xlabel('Time [s]');
@@ -133,7 +145,11 @@ end
 
 % Add legend to lower subplot
 legend(legendEntries, 'Location', 'best');
-
-sgtitle(['dV/dt in discharge After Fast Charge ', cellNum], 'Interpreter', 'none');
+linkaxes(ax,'x')
+if isempty(cellLabel)
+    sgtitle(['dV/dt in discharge After Fast Charge ', cellNum], 'Interpreter', 'none');
+else
+    sgtitle(['dV/dt in discharge After Fast Charge ', cellNum, ' - ', cellLabel], 'Interpreter', 'none');
+end
 hold off;
 end

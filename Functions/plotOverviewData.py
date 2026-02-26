@@ -13,7 +13,7 @@ import numpy as np
 import time
 
 
-def plot_overview_data(time_with_gaps, current, voltage, cell_temp, chamber_temp, cumulative_integral, cell_num):
+def plot_overview_data(time_with_gaps, current, voltage, cell_temp, chamber_temp, cumulative_integral, cell_num, cell_label=''):
     """
     Create multi-panel overview plot.
     
@@ -33,6 +33,8 @@ def plot_overview_data(time_with_gaps, current, voltage, cell_temp, chamber_temp
         Cumulative charge in Ampere-seconds (As)
     cell_num : str
         Cell identifier string for plot title
+    cell_label : str, optional
+        Descriptive label from test plan (default: '')
     """
     
     print('Creating overview plots...')
@@ -53,23 +55,27 @@ def plot_overview_data(time_with_gaps, current, voltage, cell_temp, chamber_temp
     # Current plot
     ax1.plot(time_pd, current, linewidth=0.5)
     ax1.grid(True, alpha=0.3)
+    ax1.set_ylim([-100, 100])
     ax1.set_ylabel('Current [A]')
     
     # Voltage plot
     ax2.plot(time_pd, voltage, linewidth=0.5)
     ax2.grid(True, alpha=0.3)
+    ax2.set_ylim([2.5, 4.5])
     ax2.set_ylabel('Voltage [V]')
     
     # Temperature plot (cell surface and chamber ambient)
     ax3.plot(time_pd, cell_temp, label='surface', linewidth=0.5)
     ax3.plot(time_pd, chamber_temp, label='ambient', linewidth=0.5)
     ax3.grid(True, alpha=0.3)
+    ax3.set_ylim([0, 60])
     ax3.set_ylabel('Temperature [°C]')
     ax3.legend(loc='lower left')
     
     # Cumulative capacity plot (convert from As to Ah by dividing by 3600)
     ax4.plot(time_pd, cumulative_integral / 3600, linewidth=0.5)
     ax4.grid(True, alpha=0.3)
+    ax4.set_ylim([0, 60])
     ax4.set_xlabel('Date')
     ax4.set_ylabel('Capacity [Ah]')
     
@@ -78,8 +84,24 @@ def plot_overview_data(time_with_gaps, current, voltage, cell_temp, chamber_temp
     ax4.xaxis.set_major_locator(mdates.AutoDateLocator())
     fig.autofmt_xdate()  # Rotate date labels
     
+    # Ensure start and end dates are always visible on x-axis
+    if len(valid_times) > 0:
+        start_time_val = valid_times.min()
+        end_time_val = valid_times.max()
+        ax4.set_xlim([start_time_val, end_time_val])
+        # Get current ticks and add start/end if not present
+        current_ticks = list(ax4.get_xticks())
+        # Add start and end dates to ticks
+        start_num = mdates.date2num(start_time_val)
+        end_num = mdates.date2num(end_time_val)
+        all_ticks = sorted(set([start_num] + current_ticks + [end_num]))
+        ax4.set_xticks(all_ticks)
+    
     # Set title
-    fig.suptitle(f'Data overview file {cell_num}', fontsize=14)
+    if cell_label:
+        fig.suptitle(f'Data overview file {cell_num} - {cell_label}', fontsize=14)
+    else:
+        fig.suptitle(f'Data overview file {cell_num}', fontsize=14)
     
     # Adjust layout to prevent overlap
     plt.tight_layout()

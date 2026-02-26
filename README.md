@@ -31,17 +31,25 @@ The scripts enable analysis of:
     └── plotOverviewData          # Generate data overview plots
 ```
 
+## Ageing Test Plan
+
+See [ageing_test_plan.md](ageing_test_plan.md) for the complete test matrix including:
+- **0°C** - 8 cells testing temperature effects, C-rate variations, and validation cycles
+- **25°C** - 11 cells testing DoD effects, C-rate effects, and validation cycles  
+- **45°C** - 14 cells testing SOC effects, average SoC, high voltage, C-rate, and validation cycles
+- **0°C – 45°C (Dynamic)** - 5 cells with dynamic temperature profiles for validation
+
 ## Requirements
 
 ### Python
-- Python 3.x
+- Python 3.9+
 - NumPy
 - Pandas
 - Matplotlib
 - SciPy
 
 ### MATLAB
-- MATLAB R2020a or later (recommended)
+- MATLAB R2022a or later
 
 ## Usage
 
@@ -97,7 +105,7 @@ The scripts expect CSV files organized in the following structure:
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Author
+## Authors
 
 Róbinson Medina, Feye Hoekstra
 
