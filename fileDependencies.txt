@@ -4,6 +4,7 @@ analyzeDVdtAfterCharge.m
 analyzeDVdtAfterCharge.py
 computeCumulativeCharge.m
 computeCumulativeCharge.py
+exportOCPDischarge.m
 extractResistanceValues.m
 extractResistanceValues.py
 findCheckupSegments.m
@@ -18,3 +19,11 @@ plotNyquistDiagram.m
 plotNyquistDiagram.py
 plotOverviewData.m
 plotOverviewData.py
+csv2mat_old.m
+findSegments.m
+findSegmentsMinMax.m
+getDeepestFolders.m
+importfile.m
+natsort.m
+natsortfiles.m
+findSegmentsMinMax.py

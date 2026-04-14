@@ -1,4 +1,4 @@
-function [checkupCapacity_AhTimeStamp, checkupCapacity_Ah, checkupCapacityFEC, legends,SegmentVoltage_V,dQdV_AperVs,SegmentCapacity_Ah] = analyzeCheckupDischarge(segments, selectedTime, selectedVoltage, selectedCurrent, selectedTimeS, windowSize, cellNum, cellLabel)
+function [checkupCapacity_AhTimeStamp, checkupCapacity_Ah, checkupCapacityFEC, legends,CheckUpOCV_V,dQdV_AperVs,SegmentCapacity_Ah,CheckUpSoC] = analyzeCheckupDischarge(segments, selectedTime, selectedVoltage, selectedCurrent, selectedTimeS, windowSize, cellNum, cellLabel)
 % analyzeCheckupDischarge - Analyze and plot discharge curves for checkup cycles
 %
 % This function processes constant-current discharge segments to calculate
@@ -26,9 +26,10 @@ end
 % Loop through each segment and analyze discharge curves
 fprintf('Analyzing discharge curves: ');
 legends = {};
-SegmentVoltage_V={};
+CheckUpOCV_V={};
 dQdV_AperVs={};
 SegmentCapacity_Ah={};
+CheckUpSoC={};
 figure('Units','normalized', 'OuterPosition',[0 0 0.5 1]); % Create a figure that takes up half the screen width
 
 hold on
@@ -66,7 +67,7 @@ for i = 1:length(segments)
     % Only process complete discharge cycles (ending below 2.76V)
     if segmentVoltage(end) < 2.76 && segmentVoltage(1) > 4.1
         % Plot discharge capacity vs voltage
-        subplot(2,1,1)
+        subplot(3,1,1)
         hold on;
         SegmentCapacity_Ah{ValidSegCount} = -cumtrapz(segmentTimeS, segmentCurrent)/3600;
         plot(SegmentCapacity_Ah{ValidSegCount}, segmentVoltage, ...
@@ -76,7 +77,7 @@ for i = 1:length(segments)
         ylabel('Voltage [V]');
         
         % Plot differential capacity (dQ/dV) vs voltage
-        subplot(2,1,2)
+        subplot(3,1,2)
         hold on;
         % Calculate smoothed dQ/dV
         smoothCurrent = movmean(segmentCurrent, windowSize);
@@ -89,12 +90,32 @@ for i = 1:length(segments)
         xlabel('Cell Voltage [V]');
         ylabel('dQ/dV');
         pause(0.01)
-        SegmentVoltage_V{ValidSegCount} = segmentVoltage;
     
         % Store capacity and timestamp for trending
         checkupCapacity_AhTimeStamp(i) = segmentTime(1);
         checkupCapacity_Ah(i) = -min(cumtrapz(segmentTimeS, segmentCurrent)/3600);
         checkupCapacityFEC(i) = segmentFEC(1);
+        
+           % Compute SoC vector: starts at 100% and decreases during discharge
+           soc_raw = 100 + (cumtrapz(segmentTimeS, segmentCurrent)/3600) / checkupCapacity_Ah(i) * 100;
+
+           % Interpolate SoC and OCV to 100 points
+           soc_vec = linspace(100, min(soc_raw), 100);
+           [sorted_soc, sort_idx] = sort(soc_raw, 'descend');
+           sorted_voltage = segmentVoltage(sort_idx);
+           [unique_soc, unique_idx] = unique(sorted_soc, 'stable');
+           unique_voltage = sorted_voltage(unique_idx);
+           CheckUpSoC{ValidSegCount} = soc_vec;
+           CheckUpOCV_V{ValidSegCount} = interp1(unique_soc, unique_voltage, soc_vec, 'linear', 'extrap');
+        
+        % Plot SoC vs Voltage
+           subplot(3,1,3)
+           hold on;
+           plot(CheckUpSoC{ValidSegCount}, CheckUpOCV_V{ValidSegCount}, ...
+               'LineStyle', currentLineStyle, 'LineWidth', 1.5, ...
+               'Color', [i/length(segments), 0, 1-i/length(segments)]);
+           xlabel('State of Charge [%]');
+           ylabel('OCV [V]');
         CheckedDate = segmentTime(1);
         CheckedDate.Format = 'yy-MM-dd''T''HH:mm';
         legends = {legends{:} [' ' char(CheckedDate)]};
@@ -118,10 +139,12 @@ lgd.Location = 'best';
 hold off;
 fprintf('\nCheckup capacity analysis complete. (Elapsed: %.2f s)\n', toc);
 
+
 % Remove NaT entries from output arrays
 validIdx = ~isnat(checkupCapacity_AhTimeStamp);
 checkupCapacity_AhTimeStamp = checkupCapacity_AhTimeStamp(validIdx);
 checkupCapacity_Ah = checkupCapacity_Ah(validIdx);
 checkupCapacityFEC = checkupCapacityFEC(validIdx);
+
 
 end

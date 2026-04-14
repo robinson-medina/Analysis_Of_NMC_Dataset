@@ -35,6 +35,7 @@ import re
 # Set input/output folder
 io_folder = Path(r"\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\Cyclic_ageing_data")
 input_csv = io_folder / 'OverviewCapacityData_36cell.csv'
+ageing_test_plan_path = Path(__file__).with_name("ageing_test_plan.md")
 
 # Enable non-blocking mode for all figures
 plt.ion()
@@ -71,6 +72,32 @@ def plot_capacity_degradation(df, cell_list, cell_plot_list, label_list, colorma
     plt.savefig(io_folder / filename, dpi=300, bbox_inches="tight")
     # plt.close()  # Removed to keep figures open
 
+
+def load_cell_name_map(test_plan_path):
+    """Parse ageing_test_plan.md and return mapping: Cell_XX -> AYY_ZZ."""
+    cell_name_map = {}
+    row_pattern = re.compile(r'^\|\s*\d+\s*\|\s*([^|]+?)\s*\|\s*(Cell_\d+)\s*\|')
+
+    with open(test_plan_path, "r", encoding="utf-8") as md_file:
+        for line in md_file:
+            match = row_pattern.match(line.strip())
+            if not match:
+                continue
+            cell_name = match.group(1).strip()
+            cell_number = match.group(2).strip()
+            cell_name_map[cell_number] = cell_name
+
+    return cell_name_map
+
+
+def build_label_list(cell_plot_list, descriptor_list, cell_name_map):
+    """Build labels as '<cell name> | <cell number> - <descriptor>' for legends."""
+    labels = []
+    for cell, descriptor in zip(cell_plot_list, descriptor_list):
+        cell_name = cell_name_map.get(cell, "UnknownCellName")
+        labels.append(f"{cell_name} | {cell} - {descriptor}")
+    return labels
+
 # Load and preprocess data
 combined_df = pd.read_csv(input_csv)
 combined_df.rename(columns={
@@ -83,6 +110,7 @@ combined_df["cell_number"] = combined_df["cell_number"].astype(str).str.extract(
 cell_list = combined_df["cell_number"].dropna().unique()
 combined_df = combined_df[combined_df["cell_number"].notna()]
 combined_df["Timestamp"] = pd.to_datetime(combined_df["Timestamp"])
+cell_name_map = load_cell_name_map(ageing_test_plan_path)
 
 # Plot 1: All cells overview
 plt.figure(figsize=(10, 6))
@@ -106,7 +134,8 @@ plt.close()
 
 # Plot 2: Effect of Depth of Discharge (DoD)
 cell_plot_list = ["Cell_12", "Cell_56", "Cell_89", "Cell_93", "Cell_27", "Cell_30", "Cell_16"]
-label_list = ["Cell_12 - 100% DoD", "Cell_56 - 100% DoD", "Cell_89 - 100% DoD", "Cell_93 - 100% DoD", "Cell_27 - 70% DoD", "Cell_30 - 40% DoD", "Cell_16 - 10% DoD"]
+descriptor_list = ["100% DoD", "100% DoD", "100% DoD", "100% DoD", "70% DoD", "40% DoD", "10% DoD"]
+label_list = build_label_list(cell_plot_list, descriptor_list, cell_name_map)
 colormap = ["blue", "red", "green", "orange", "purple", "brown", "pink"]
 marker_list = ['-'] * len(cell_plot_list)
 plot_capacity_degradation(combined_df, cell_list, cell_plot_list, label_list, colormap, marker_list,
@@ -114,7 +143,8 @@ plot_capacity_degradation(combined_df, cell_list, cell_plot_list, label_list, co
 
 # Plot 3: Effect of Temperature
 cell_plot_list = ["Cell_60", "Cell_12", "Cell_56", "Cell_89", "Cell_93", "Cell_29"]
-label_list = ["Cell_60 - 0°C", "Cell_12 - 25°C", "Cell_56 - 25°C", "Cell_89 - 25°C", "Cell_93 - 25°C", "Cell_29 - 45°C"]
+descriptor_list = ["0°C", "25°C", "25°C", "25°C", "25°C", "45°C"]
+label_list = build_label_list(cell_plot_list, descriptor_list, cell_name_map)
 colormap = ["blue", "orange", "orange", "orange", "orange", "red"]
 marker_list = ['-', '--', ':', '-.', '-', '-']
 plot_capacity_degradation(combined_df, cell_list, cell_plot_list, label_list, colormap, marker_list,
@@ -122,7 +152,8 @@ plot_capacity_degradation(combined_df, cell_list, cell_plot_list, label_list, co
 
 # Plot 4: Effect of C-rate at 0°C
 cell_plot_list = ["Cell_63", "Cell_60", "Cell_66", "Cell_68"]
-label_list = ["Cell_63 - C/4 - C/2 - 0°C", "Cell_60 - C/2 - C/2 - 0°C", "Cell_66 - 3C/4 - C/2 - 0°C", "Cell_68 - 1C - C/2 - 0°C"]
+descriptor_list = ["C/4 - C/2 - 0°C", "C/2 - C/2 - 0°C", "3C/4 - C/2 - 0°C", "1C - C/2 - 0°C"]
+label_list = build_label_list(cell_plot_list, descriptor_list, cell_name_map)
 colormap = ["blue", "red", "green", "orange"]
 marker_list = ['-'] * len(cell_plot_list)
 plot_capacity_degradation(combined_df, cell_list, cell_plot_list, label_list, colormap, marker_list,
@@ -130,7 +161,8 @@ plot_capacity_degradation(combined_df, cell_list, cell_plot_list, label_list, co
 
 # Plot 5: Effect of C-rate at 25°C
 cell_plot_list = ["Cell_12", "Cell_23", "Cell_34", "Cell_35", "Cell_43"]
-label_list = ["Cell_12 - C/2 - C/2 - 25°C", "Cell_23 - 1C - C/2 - 25°C", "Cell_34 - 3C/2 - C/2 - 25°C", "Cell_35 - 2C - C/2 - 25°C", "Cell_43 - C/2 - 3C/2 - 25°C"]
+descriptor_list = ["C/2 - C/2 - 25°C", "1C - C/2 - 25°C", "3C/2 - C/2 - 25°C", "2C - C/2 - 25°C", "C/2 - 3C/2 - 25°C"]
+label_list = build_label_list(cell_plot_list, descriptor_list, cell_name_map)
 colormap = ["blue", "red", "green", "orange", "purple"]
 marker_list = ['-'] * len(cell_plot_list)
 plot_capacity_degradation(combined_df, cell_list, cell_plot_list, label_list, colormap, marker_list,
@@ -138,7 +170,8 @@ plot_capacity_degradation(combined_df, cell_list, cell_plot_list, label_list, co
 
 # Plot 6: Effect of C-rate at 45°C
 cell_plot_list = ["Cell_29", "Cell_8", "Cell_9", "Cell_47"]
-label_list = ["Cell_29 - C/2 - C/2 - 45°C", "Cell_8 - C/2 - 1C - 45°C", "Cell_9 - 1C - C/2 - 45°C", "Cell_47 - 1C - 1C - 45°C"]
+descriptor_list = ["C/2 - C/2 - 45°C", "C/2 - 1C - 45°C", "1C - C/2 - 45°C", "1C - 1C - 45°C"]
+label_list = build_label_list(cell_plot_list, descriptor_list, cell_name_map)
 colormap = ["blue", "red", "green", "orange"]
 marker_list = ['-'] * len(cell_plot_list)
 plot_capacity_degradation(combined_df, cell_list, cell_plot_list, label_list, colormap, marker_list,
@@ -146,7 +179,8 @@ plot_capacity_degradation(combined_df, cell_list, cell_plot_list, label_list, co
 
 # Plot 7: Effect of Average SoC
 cell_plot_list = ["Cell_40", "Cell_1", "Cell_3"]
-label_list = ["Cell_40 - 75% avg SoC - 50% DoD", "Cell_1 - 50% avg SoC - 50% DoD", "Cell_3 - 25% avg SoC - 50% DoD"]
+descriptor_list = ["75% avg SoC - 50% DoD", "50% avg SoC - 50% DoD", "25% avg SoC - 50% DoD"]
+label_list = build_label_list(cell_plot_list, descriptor_list, cell_name_map)
 colormap = ["blue", "red", "green"]
 marker_list = ['-'] * len(cell_plot_list)
 plot_capacity_degradation(combined_df, cell_list, cell_plot_list, label_list, colormap, marker_list,
@@ -154,7 +188,8 @@ plot_capacity_degradation(combined_df, cell_list, cell_plot_list, label_list, co
 
 # Plot 8: Effect of High Voltage
 cell_plot_list = ["Cell_9", "Cell_5", "Cell_22"]
-label_list = ["Cell_9 - 2.75V-4.35V - CC - CC", "Cell_5 - 2.75V-4.45V - CC - CC", "Cell_22 - 2.75V-4.45V - CCCV - CC"]
+descriptor_list = ["2.75V-4.35V - CC - CC", "2.75V-4.45V - CC - CC", "2.75V-4.45V - CCCV - CC"]
+label_list = build_label_list(cell_plot_list, descriptor_list, cell_name_map)
 colormap = ["blue", "red", "green"]
 marker_list = ['-'] * len(cell_plot_list)
 plot_capacity_degradation(combined_df, cell_list, cell_plot_list, label_list, colormap, marker_list,

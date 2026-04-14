@@ -13,22 +13,37 @@ The scripts enable analysis of:
 ## Repository Structure
 
 ```
-├── plotAgeingData.py/.m          # Main ageing data analysis script
-├── PlotCharacterizationData.py/.m # Characterization data visualization
-├── PlotEISData.py/.m             # EIS Nyquist diagram plotting
-├── fileDependencies.txt          # List of function dependencies
-├── LICENSE                       # MIT License
 ├── README.md                     # This file
-└── Functions/                    # Helper functions
-    ├── analyzeCheckupDischarge   # Analyze discharge curves for checkup cycles
-    ├── analyzeDVdtAfterCharge    # Analyze dV/dt after charging
-    ├── computeCumulativeCharge   # Compute cumulative charge capacity
-    ├── extractResistanceValues   # Extract resistance from data
-    ├── findCheckupSegments       # Identify checkup segments in data
-    ├── insertNaNAtGaps           # Handle data gaps
-    ├── plotCapacityAndResistanceTrending  # Plot capacity/resistance trends
-    ├── plotNyquistDiagram        # Generate Nyquist diagrams
-    └── plotOverviewData          # Generate data overview plots
+├── ageing_test_plan.md           # Complete test matrix and configurations
+├── requirements.txt              # Python dependencies
+├── fileDependencies.txt          # List of function dependencies
+│
+├── matlab_scripts/               # MATLAB analysis scripts
+│   ├── PlotAgeingData.m          # Main ageing data analysis
+│   ├── PlotCharacterizationData.m # Characterization data visualization
+│   ├── PlotEISData.m             # EIS Nyquist diagram plotting
+│   ├── ExtractAgeingData.m        # Data extraction and processing
+│   ├── PlotCapacityDegradationOverview.m  # Capacity degradation trends
+│   ├── PlotResistanceIncreaseOverview.m   # Resistance trends
+│   ├── ConvertMat4Journal_ageing.m        # MAT file conversion
+│   └── extractOCPLines.m         # OCP line extraction
+│
+├── python_scripts/               # Python analysis scripts
+│   ├── PlotAgeingData.py         # Python version of ageing analysis
+│   ├── PlotCharacterizationData.py # Python characterization visualization
+│   ├── PlotEISData.py            # Python EIS visualization
+│   ├── ExtractAgeingData.py      # Python data extraction
+│   ├── PlotCapacityDegradationOverview.py # Python capacity trends
+│   └── extractOCPLines.py        # Python OCP line extraction
+│
+├── docs/                         # Documentation and project tracking
+│   ├── rules.md                  # Business rules and constraints
+│   ├── done.md                   # Completed work log
+│   ├── todo.md                   # Task backlog and ideas
+│   ├── assumptions.md            # Analysis assumptions
+│   └── figures/                  # Generated figures (publication-ready)
+│
+└── pngs/                         # PNG output directory
 ```
 
 ## Ageing Test Plan
@@ -56,27 +71,40 @@ See [ageing_test_plan.md](ageing_test_plan.md) for the complete test matrix incl
 ### Python
 
 ```bash
+# Navigate to python_scripts directory
+cd python_scripts
+
 # Run ageing data analysis
-python plotAgeingData.py
+python PlotAgeingData.py
 
 # Run characterization data visualization
 python PlotCharacterizationData.py
 
 # Run EIS data visualization
 python PlotEISData.py
+
+# Run OCP line extraction
+python extractOCPLines.py
 ```
 
 ### MATLAB
 
 ```matlab
+% Add paths (from MATLAB command window)
+addpath(genpath('..\'));  % Add current project to path
+
 % Run ageing data analysis
-plotAgeingData
+cd matlab_scripts
+PlotAgeingData
 
 % Run characterization data visualization
 PlotCharacterizationData
 
 % Run EIS data visualization
 PlotEISData
+
+% Run OCP line extraction
+extractOCPLines
 ```
 
 ## Main Scripts
@@ -92,6 +120,9 @@ Visualizes initial characterization data from CSV files. Generates figures with 
 
 ### `PlotEISData`
 Loads impedance data from CSV files and generates Nyquist diagrams for different State of Charge (SoC) conditions.
+
+### `extractOCPLines`
+Builds anode and cathode OCP-like lookup curves from GITT pulse data, creates diagnostic plots for the detected pulse boundaries, and saves publication-ready PNG figures.
 
 ## Data Format
 

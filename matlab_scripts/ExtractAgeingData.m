@@ -20,13 +20,14 @@ addpath("..\Functions\")
 
 %% Configuration
 DesiredFolder = '\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\Cyclic_ageing_data';
-DesiredFolder = '\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\Calendar_ageing_data';
+% DesiredFolder = '\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\Calendar_ageing_data';
 Folders = dir([DesiredFolder '\*_Cell_*']);
 % cellNum = 'A3.13_Cell_17';
 % cellNum = 'A3.11_Cell_8'; % ligth A3 file
 % cellNum = 'A3.12_Cell_47';
 cellNum = 'A2.08_Cell_35'; % light A2 file
-cellNum = 'A2.07_Cell_34';
+cellNum = 'A2.02_Cell_56'; % light A2 file
+% cellNum = 'A2.07_Cell_34';
 
 % Load processed battery test data from .mat file
 
@@ -35,9 +36,9 @@ allResistanceData = {};
 allDVdtData = {};
 allCapacityData = {};
 allDQdVData = {};celNumIndx=1;
-% 
-for celNumIndx = 1:length(Folders)
-    cellNum = Folders(celNumIndx).name;
+
+% for celNumIndx = 1:length(Folders)
+%     cellNum = Folders(celNumIndx).name;
     close all
     
     % Generate descriptive label for cell based on ageing test plan
@@ -133,8 +134,11 @@ for celNumIndx = 1:length(Folders)
     windowSize = 5000;
 
     % Analyze discharge curves and calculate checkup capacity
-    [checkupCapacityTimeStamp, checkupCapacity_Ah,checkupCapacityFEC,legends,SegmentVoltage_V,dQdV_AperVs,SegmentCapacity_Ah] = analyzeCheckupDischarge(segments, selectedTime, selectedVoltage, selectedCurrent, selectedTimeS, windowSize, cellNum, cellLabel);
+    [checkupCapacityTimeStamp, checkupCapacity_Ah,checkupCapacityFEC,legends,CheckUpOCV_V,dQdV_AperVs,SegmentCapacity_Ah,CheckUpSoC] = analyzeCheckupDischarge(segments, selectedTime, selectedVoltage, selectedCurrent, selectedTimeS, windowSize, cellNum, cellLabel);
     figCheckupDischarge = gcf;
+
+    % Export OCP discharge data (SoC-OCV-capacity) to CSV
+    exportOCPDischarge(savePath, cellNum, CheckUpSoC, CheckUpOCV_V, checkupCapacity_Ah, checkupCapacityTimeStamp);
 
     %% Extract Resistance Values
     % Calculate internal resistance from voltage drop during current pulses
@@ -203,7 +207,7 @@ for celNumIndx = 1:length(Folders)
         end
     end
 
-end
+% end
 
 %% Save All Tables to CSV
 fprintf('\n========================================\n');

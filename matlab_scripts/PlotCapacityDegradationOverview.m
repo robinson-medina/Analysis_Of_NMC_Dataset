@@ -146,6 +146,7 @@ output_file = fullfile(io_folder_cyclic, 'RelativeCapacityVsTime_.png');
 exportgraphics(gcf, output_file, 'Resolution', 300);
 
 %% Plot 2: Effect of Depth of Discharge (DoD)
+CheckupCapacityFEC = combined_df_cyclic.CheckupCapacityFEC;
 % Compares cells cycled at different DoD levels (100%, 70%, 40%, 10%)
 % All cells at 25°C with C/2 charge and discharge rates
 cell_plot_list = {"Cell_12", "Cell_56", "Cell_89", "Cell_93", "Cell_27", "Cell_30", "Cell_16"};
@@ -154,7 +155,6 @@ label_list = {"A02_02 | Cell_12 - 100% DoD", "A2.02 | Cell_56 - 100% DoD", "A2.0
 colormap_list = {'b', 'r', 'g', [1 0.5 0], [0.5 0 0.5], [0.6 0.3 0], [1 0.75 0.8]};  % Different colors for each cell
 Marker_list = repmat({'-'}, 1, length(cell_plot_list));
 output_file = fullfile(io_folder_cyclic, 'RelativeCapacityVsTime_VsDoD_.png');
-CheckupCapacityFEC = combined_df_cyclic.CheckupCapacityFEC;
 plotCapacityDegradation(combined_df_cyclic, cell_list, cell_plot_list, label_list, colormap_list, Marker_list, ...
     output_file, 'Effect of Depth of Discharge (DoD)', CheckupCapacityFEC);
 
@@ -167,7 +167,6 @@ label_list = {"A01_02 | Cell_60 - 0°C", "A02_02 | Cell_12 - 25°C", "A2.02 | Ce
 colormap_list = {'b', [1 0.5 0], [1 0.5 0], [1 0.5 0], [1 0.5 0], 'r'};  % Blue=cold, Orange=ambient, Red=hot
 LinteStyleList = {'-','--',':','-.','-','-'};
 output_file = fullfile(io_folder_cyclic, 'RelativeCapacityVsTime_VsTemperature_.png');
-CheckupCapacityFEC = combined_df_cyclic.CheckupCapacityFEC;
 plotCapacityDegradation(combined_df_cyclic, cell_list, cell_plot_list, label_list, colormap_list, LinteStyleList, ...
     output_file, 'Effect of Temperature', CheckupCapacityFEC);
 
@@ -180,7 +179,6 @@ label_list = {"A01_03 | Cell_63 - C/4 - C/2 - 0°C", "A01_02 | Cell_60 - C/2 - C
 colormap_list = {'b', 'r', 'g', [1 0.5 0]};
 Marker_list = repmat({'-'}, 1, length(cell_plot_list));
 output_file = fullfile(io_folder_cyclic, 'RelativeCapacityVsTime_VsCrate0DegC_.png');
-CheckupCapacityFEC = combined_df_cyclic.CheckupCapacityFEC;
 plotCapacityDegradation(combined_df_cyclic, cell_list, cell_plot_list, label_list, colormap_list, Marker_list, ...
     output_file, 'Effect of C-rate at 0°C', CheckupCapacityFEC);
 
@@ -188,12 +186,11 @@ plotCapacityDegradation(combined_df_cyclic, cell_list, cell_plot_list, label_lis
 % Compares different charge/discharge rates at room temperature
 % Label format: "Charge rate - Discharge rate - Temperature"
 cell_plot_list = {"Cell_12", "Cell_23", "Cell_34", "Cell_35", "Cell_43"};
-cell_name_list = {"A02_02", "A02_06", "A02_07", "A02_08", "A02_09"}; % Cell names from Ageing Test Plan
-label_list = {"A02_02 | Cell_12 - C/2 - C/2 - 25°C", "A02_06 | Cell_23 - 1C - C/2 - 25°C", "A02_07 | Cell_34 - 3C/2 - C/2 - 25°C", "A02_08 | Cell_35 - 2C - C/2 - 25°C", "A02_09 | Cell_43 - C/2 - 3C/2 - 25°C"};
+cell_name_list = {"A02_02", "A02_06", "A02_07", "A02_08"}; % Cell names from Ageing Test Plan
+label_list = {"A02_02 | Cell_12 - C/2 - C/2 - 25°C", "A02_06 | Cell_23 - 1C - C/2 - 25°C", "A02_07 | Cell_34 - 3C/2 - C/2 - 25°C", "A02_08 | Cell_35 - 2C - C/2 - 25°C};
 colormap_list = {'b', 'r', 'g', [1 0.5 0], [0.5 0 0.5]};
 Marker_list = repmat({'-'}, 1, length(cell_plot_list));
 output_file = fullfile(io_folder_cyclic, 'RelativeCapacityVsTime_VsCrate25DegC_.png');
-CheckupCapacityFEC = combined_df_cyclic.CheckupCapacityFEC;
 plotCapacityDegradation(combined_df_cyclic, cell_list, cell_plot_list, label_list, colormap_list, Marker_list, ...
     output_file, 'Effect of C-rate at 25°C', CheckupCapacityFEC);
 
@@ -206,7 +203,6 @@ label_list = {"A03_04 | Cell_29 - C/2 - C/2 - 45°C", "A03_08 | Cell_8 - C/2 - 1
 colormap_list = {'b', 'r', 'g', [1 0.5 0]};
 Marker_list = repmat({'-'}, 1, length(cell_plot_list));
 output_file = fullfile(io_folder_cyclic, 'RelativeCapacityVsTime_VsCrate45DegC_.png');
-CheckupCapacityFEC = combined_df_cyclic.CheckupCapacityFEC;
 plotCapacityDegradation(combined_df_cyclic, cell_list, cell_plot_list, label_list, colormap_list, Marker_list, ...
     output_file, 'Effect of C-rate at 45°C', CheckupCapacityFEC);
 
@@ -219,7 +215,6 @@ label_list = {"A03_05 | Cell_40 - 75% avg SoC - 50% DoD", "A03_06 | Cell_1 - 50%
 colormap_list = {'b', 'r', 'g'};
 Marker_list = repmat({'-'}, 1, length(cell_plot_list));
 output_file = fullfile(io_folder_cyclic, 'RelativeCapacityVsTime_AvgSoC_.png');
-CheckupCapacityFEC = combined_df_cyclic.CheckupCapacityFEC;
 plotCapacityDegradation(combined_df_cyclic, cell_list, cell_plot_list, label_list, colormap_list, Marker_list, ...
     output_file, 'Effect of Average SoC', CheckupCapacityFEC);
 
@@ -232,30 +227,27 @@ label_list = {"A03_09 | Cell_9 - 2.75V-4.35V - CC - CC", "A03_12 | Cell_5 - 2.75
 colormap_list = {'b', 'r', 'g'};
 Marker_list = repmat({'-'}, 1, length(cell_plot_list));
 output_file = fullfile(io_folder_cyclic, 'RelativeCapacityVsTime_HighVEffect_.png');
-CheckupCapacityFEC = combined_df_cyclic.CheckupCapacityFEC;
 plotCapacityDegradation(combined_df_cyclic, cell_list, cell_plot_list, label_list, colormap_list, Marker_list, ...
     output_file, 'Effect of High Voltage', CheckupCapacityFEC);
 
 disp('All plots generated successfully!');
 %% Plot 10: Stationary storage cycle
 % Compares cells under drive cycle 1 at various temperatures
-cell_plot_list = {"Cell_74", "Cell_46", "Cell_48", "Cell_53"};
-label_list = {"Cell_74 - 0 degrees", "Cell_46 - 25 degrees", "Cell_48 - 45 degrees", "Cell_53 - dynamic temperatures"};
-colormap_list = {'b', 'r', 'g', [0.5 0.5 0.5]}; % Blue, red, green, gray
+cell_plot_list = {"Cell_74", "Cell_46", "Cell_17", "Cell_53"};
+label_list = {"Cell_74 - 0 degrees", "Cell_46 - 25 degrees", "Cell_17 - 45 degrees", "Cell_53 - dynamic temperatures"};
+colormap_list = {'b', 'r', 'g', [0.5 0.5 0.5]}; % Example colors: blue, red, green, gray
 Marker_list = repmat({'-'}, 1, length(cell_plot_list));
 output_file = fullfile(io_folder_cyclic, 'RelativeCapacityVsTime_StationaryStorage_.png');
-CheckupCapacityFEC = combined_df_cyclic.CheckupCapacityFEC;
 plotCapacityDegradation(combined_df_cyclic, cell_list, cell_plot_list, label_list, colormap_list, Marker_list, ...
     output_file, 'Stationary storage cycle', CheckupCapacityFEC);
 
-%% Plot 11: Drive cycle
+    %% Plot 11: Drive cycle
 % Compares cells under drive cycle at various temperatures
-cell_plot_list = {"Cell_72", "Cell_42", "Cell_14", "Cell_49"};
+cell_plot_list = {"Cell_72", "Cell_42", "Cell_25", "Cell_49"};
 label_list = {"Cell_72 - 0 degrees", "Cell_42 - 25 degrees", "Cell_14 - 45 degrees", "Cell_49 - dynamic temperatures"};
-colormap_list = {'b', 'r', 'g', [0.5 0.5 0.5]}; % Blue, red, green, gray
+colormap_list = {'b', 'r', 'g', [0.5 0.5 0.5]}; % Example colors: blue, red, green, gray
 Marker_list = repmat({'-'}, 1, length(cell_plot_list));
 output_file = fullfile(io_folder_cyclic, 'RelativeCapacityVsTime_DriveCycle_.png');
-CheckupCapacityFEC = combined_df_cyclic.CheckupCapacityFEC;
 plotCapacityDegradation(combined_df_cyclic, cell_list, cell_plot_list, label_list, colormap_list, Marker_list, ...
     output_file, 'Drive cycle', CheckupCapacityFEC);
     
