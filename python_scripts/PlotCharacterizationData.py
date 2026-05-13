@@ -4,21 +4,92 @@ Characterization Data Visualization Script
 This script plots data from CSV files in the specified characterization folder.
 Each file generates one figure with multiple subplots (one per data column).
 
-Author: Converted from Matlab usuing Github copilot
-Updated: February 12, 2026
+Author: Robinson Medina (MATLAB), Copilot (Python parity update)
+Updated: 2026-04-14
 """
 
 import os
-import sys
-from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
+import matplotlib.dates as mdates
+
+
+def reconstruct_time_vector(time_col: pd.Series) -> pd.Series:
+    """Reconstruct MATLAB-style time axis where row 1 is datetime and next rows are delta-seconds."""
+
+    time_data = pd.Series([pd.NaT] * len(time_col), dtype="datetime64[ns]")
+    time_data.iloc[0] = pd.to_datetime(time_col.iloc[0], format="%d-%b-%Y %H:%M:%S.%f")
+
+    if len(time_col) > 1:
+        increase_s = np.cumsum(pd.to_numeric(time_col.iloc[1:], errors="coerce"))
+        time_data.iloc[1:] = time_data.iloc[0] + pd.to_timedelta(increase_s, unit="s")
+
+    return time_data
+
+
+def categorize_columns(column_names: list[str]) -> tuple[list[int], list[int], list[int], list[int]]:
+    """Return indices ordered as current, voltage, other, and temperature columns."""
+
+    current_indices: list[int] = []
+    voltage_indices: list[int] = []
+    temp_indices: list[int] = []
+    other_indices: list[int] = []
+
+    for col_idx, col_name in enumerate(column_names, start=1):
+        col_name_lower = col_name.lower()
+        if "current" in col_name_lower or "curr" in col_name_lower:
+            current_indices.append(col_idx)
+        elif "voltage" in col_name_lower or "volt" in col_name_lower:
+            voltage_indices.append(col_idx)
+        elif "temperature" in col_name_lower or "temp" in col_name_lower:
+            temp_indices.append(col_idx)
+        else:
+            other_indices.append(col_idx)
+
+    return current_indices, voltage_indices, temp_indices, other_indices
+
+
+def add_edge_ticks_datetime(ax: plt.Axes, time_data: pd.Series) -> None:
+    """Ensure the datetime axis always includes the start and end timestamps."""
+
+    existing_ticks = ax.get_xticks()
+    start_num = mdates.date2num(time_data.iloc[0].to_pydatetime())
+    end_num = mdates.date2num(time_data.iloc[-1].to_pydatetime())
+    merged_ticks = np.unique(np.concatenate([existing_ticks, np.array([start_num, end_num])]))
+    ax.set_xticks(merged_ticks)
+
+
+def strip_trailing_unit_words(display_name: str) -> str:
+    """Match MATLAB label cleanup that removes trailing standalone unit words."""
+
+    cleaned = display_name
+    cleaned = cleaned.rstrip()
+    for suffix in [" A", " a", " V", " v"]:
+        if cleaned.endswith(suffix):
+            cleaned = cleaned[: -len(suffix)]
+            cleaned = cleaned.rstrip()
+    return cleaned
+
+
+def style_x_axis(ax: plt.Axes, subplot_idx: int, num_rows: int, time_data: pd.Series) -> None:
+    """Apply MATLAB-like x-axis behavior across stacked subplots."""
+
+    add_edge_ticks_datetime(ax, time_data)
+    if subplot_idx == num_rows - 1:
+        ax.set_xlabel("Time")
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%d-%b-%y"))
+        ax.tick_params(axis="x", rotation=45)
+    elif subplot_idx in (0, 1):
+        ax.set_xlabel("")
+        ax.set_xticklabels(["" for _ in ax.get_xticks()])
+    else:
+        ax.set_xlabel("")
+        ax.set_xticks([])
 
 
 def main():
-    """Main analysis workflow for characterization data."""
+    """Main analysis workflow for characterization data with MATLAB-parity plotting order."""
     
     print('\n' + '='*40)
     print('Characterization Data Visualization Script')
@@ -71,113 +142,106 @@ def main():
             print('='*40)
             
             try:
-                # Load Data
                 print(f'Loading data from: {filename}')
-                
-                # Read the CSV file with first column as string
+
                 data = pd.read_csv(filepath, dtype={0: str})
-                
+
                 print(f'Data loaded successfully. Size: {data.shape[0]} rows x {data.shape[1]} columns')
-                
-                # Process Time Column
-                # Reconstruct time vector: first value is datetime, subsequent values are delta seconds
-                time_col = data.iloc[:, 0].values  # First column is time
-                
-                # Reconstruct time vector
-                time_data = pd.Series([pd.NaT] * len(time_col), dtype='datetime64[ns]')
-                
-                # Parse first timestamp
-                try:
-                    time_data.iloc[0] = pd.to_datetime(time_col[0], format='%d-%b-%Y %H:%M:%S.%f')
-                except:
-                    try:
-                        time_data.iloc[0] = pd.to_datetime(time_col[0])
-                    except:
-                        print(f'Warning: Could not parse datetime from first row, using index')
-                        time_data = pd.Series(range(len(time_col)))
-                
-                # Convert subsequent values to cumulative seconds and add to base time
-                if pd.notna(time_data.iloc[0]) and len(time_col) > 1:
-                    try:
-                        increase_s = np.cumsum(pd.to_numeric(time_col[1:], errors='coerce'))
-                        time_data.iloc[1:] = time_data.iloc[0] + pd.to_timedelta(increase_s, unit='s')
-                    except:
-                        print(f'Warning: Could not reconstruct time vector, using index')
-                        time_data = pd.Series(range(len(time_col)))
-                
-                time_label = 'Time'
-                
-                # Create Figure with Subplots
+
+                time_col = data.iloc[:, 0]
+                time_data = reconstruct_time_vector(time_col)
+
                 file_base_name = os.path.splitext(filename)[0]
-                fig_title = f'Characterization Data: {subfolder_name} - {file_base_name}'
-                
-                # Number of data columns (excluding time)
-                num_data_cols = data.shape[1] - 1
-                
-                if num_data_cols == 0:
+                fig_title = f'Characterization Data: {file_base_name}'
+
+                if data.shape[1] <= 1:
                     print('No data columns found (only time column), skipping...')
                     continue
-                
-                # Calculate subplot layout
-                num_cols = min(2, num_data_cols)  # Maximum 2 columns
-                num_rows = int(np.ceil(num_data_cols / num_cols))
-                
-                # Create figure
-                fig, axes = plt.subplots(num_rows, num_cols, figsize=(14, 4 * num_rows))
+
+                data_columns = list(data.columns[1:])
+                current_cols, voltage_cols, temp_cols, other_cols = categorize_columns(data_columns)
+
+                num_subplots = len(current_cols) + len(voltage_cols) + len(other_cols)
+                if temp_cols:
+                    num_subplots += 1
+
+                if num_subplots == 0:
+                    print('No plottable columns detected, skipping...')
+                    continue
+
+                fig_height = max(8.0, 2.2 * num_subplots)
+                fig, axes = plt.subplots(num_subplots, 1, figsize=(8, fig_height), squeeze=False)
+                axes_list = axes.flatten().tolist()
                 fig.suptitle(fig_title, fontsize=14, fontweight='bold')
-                
-                # Handle single subplot case
-                if num_data_cols == 1:
-                    axes = np.array([axes])
-                axes = axes.flatten() if hasattr(axes, 'flatten') else [axes]
-                
-                # Create Subplots
-                for col_idx in range(1, data.shape[1]):  # Start from column 1 (skip time column)
-                    subplot_idx = col_idx - 1
-                    
-                    # Get column data and name
-                    col_data = data.iloc[:, col_idx].values
+
+                subplot_idx = 0
+
+                # 1) Current columns
+                for col_idx in current_cols:
+                    ax = axes_list[subplot_idx]
                     col_name = data.columns[col_idx]
-                    
-                    # Clean column name for display (remove underscores, etc.)
-                    display_name = col_name.replace('_', ' ')
-                    
-                    # Plot data
-                    ax = axes[subplot_idx]
-                    
-                    # Convert time_data to numpy array for plotting
-                    if isinstance(time_data, pd.Series):
-                        time_plot = time_data.values
-                    else:
-                        time_plot = time_data
-                    
-                    ax.plot(time_plot, col_data, 'b-', linewidth=1)
-                    
-                    # Format subplot
-                    ax.set_xlabel(time_label)
-                    ax.set_ylabel(display_name)
-                    ax.set_title(display_name, fontweight='bold')
+                    col_data = pd.to_numeric(data.iloc[:, col_idx], errors='coerce')
+                    display_name = strip_trailing_unit_words(col_name.replace('_', ' '))
+                    ax.plot(time_data, col_data, 'b-', linewidth=1)
+                    ax.set_ylabel(f'{display_name} [A]')
                     ax.grid(True)
-                    
-                    # Rotate x-axis labels for better readability
-                    if isinstance(time_data.iloc[0], pd.Timestamp):
-                        plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
-                    
-                    # Tight layout for each subplot
-                    ax.autoscale(tight=True)
-                
-                # Hide any unused subplots
-                for idx in range(num_data_cols, len(axes)):
-                    axes[idx].set_visible(False)
-                
+                    style_x_axis(ax, subplot_idx, num_subplots, time_data)
+                    ax.margins(x=0)
+                    subplot_idx += 1
+
+                # 2) Voltage columns
+                for col_idx in voltage_cols:
+                    ax = axes_list[subplot_idx]
+                    col_name = data.columns[col_idx]
+                    col_data = pd.to_numeric(data.iloc[:, col_idx], errors='coerce')
+                    display_name = strip_trailing_unit_words(col_name.replace('_', ' '))
+                    ax.plot(time_data, col_data, 'b-', linewidth=1)
+                    ax.set_ylabel(f'{display_name} [V]')
+                    ax.grid(True)
+                    style_x_axis(ax, subplot_idx, num_subplots, time_data)
+                    ax.margins(x=0)
+                    subplot_idx += 1
+
+                # 3) Other columns
+                for col_idx in other_cols:
+                    ax = axes_list[subplot_idx]
+                    col_name = data.columns[col_idx]
+                    col_data = pd.to_numeric(data.iloc[:, col_idx], errors='coerce')
+                    display_name = col_name.replace('_', ' ')
+                    ax.plot(time_data, col_data, 'b-', linewidth=1)
+                    ax.set_ylabel(f'{display_name} [unit]')
+                    ax.grid(True)
+                    style_x_axis(ax, subplot_idx, num_subplots, time_data)
+                    ax.margins(x=0)
+                    subplot_idx += 1
+
+                # 4) Temperature columns in one combined subplot
+                if temp_cols:
+                    ax = axes_list[subplot_idx]
+                    colors = plt.cm.tab10(np.linspace(0, 1, len(temp_cols)))
+                    legend_entries: list[str] = []
+                    for i, col_idx in enumerate(temp_cols):
+                        col_name = data.columns[col_idx]
+                        col_data = pd.to_numeric(data.iloc[:, col_idx], errors='coerce')
+                        legend_name = col_name.replace('_', ' ')
+                        if 'CellTemp' in legend_name:
+                            legend_name = 'Cell Temperature'
+                        elif 'ChamberTemp' in legend_name:
+                            legend_name = 'Chamber Temperature'
+                        ax.plot(time_data, col_data, '-', linewidth=1.5, color=colors[i])
+                        legend_entries.append(legend_name.strip())
+
+                    ax.set_ylabel('Temperature [°C]')
+                    ax.legend(legend_entries, loc='best')
+                    ax.grid(True)
+                    style_x_axis(ax, subplot_idx, num_subplots, time_data)
+                    ax.margins(x=0)
+
                 plt.tight_layout()
-                
-                # Save Figure
-                # Create filename for saving (save in the same subfolder)
+
                 save_filename = os.path.join(current_folder, f'{file_base_name}_CharacterizationPlot.png')
-                
-                # Save with high resolution
-                fig.savefig(save_filename, dpi=150, bbox_inches='tight')
+
+                fig.savefig(save_filename, dpi=150, bbox_inches='tight', format='png')
                 print(f'Figure saved as: {save_filename}')
                 
             except Exception as e:

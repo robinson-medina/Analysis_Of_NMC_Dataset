@@ -54,38 +54,40 @@ linkaxes([axCurrent, axVoltage], 'x')
 
 
 % Integrate current from the selected pulse onward to obtain throughput.
-throughput = cumtrapz(time(index(4):index(end)+50), current(index(4):index(end)+50));
+throughput = cumtrapz(time(index(3):index(end)+50), current(index(3):index(end)+50));
+% Preserve the delithiation capacity-axis reference for later comparison plots.
+throughput_anode_del = throughput;
+% Preserve the matching full delithiation voltage segment for overlay plots.
+voltage_full_anode_del = voltage(index(3):index(end)+50);
 
 % Keep only values at pulse boundaries plus final point.
-QbeforeScaling = throughput([index(4:end) - index(4) + 1; numel(throughput)]);
-
-% Scale capacity so the profile reaches the target anode capacity (290 Ah).
-scaling = 290 / max(QbeforeScaling);
+Q = throughput([index(3:end) - index(3) + 1; numel(throughput)]);
 
 % Final capacity/voltage vectors for this profile.
-Q = QbeforeScaling * scaling;
-V = voltage([index(4:end); index(end)+50]);
+V = voltage([index(3:end); index(end)+50]);
 
 % Compare unscaled boundary points against full integrated trajectory.
 figure;
-hQBefore = plot(QbeforeScaling, V, 'o-');
+hQBefore = plot(Q, V, 'o-');
 hold on
-hThroughput = plot(throughput, voltage(index(4):index(end)+50));
+hThroughput = plot(throughput, voltage_full_anode_del);
+% Compute interpolation to a uniform 0.2 Ah grid for downstream model use.
+% Use explicit min/max and append qMax when needed, because colon stepping can
+% miss the exact endpoint due to floating-point step accumulation.
+dQ = 0.2;
+qMin = min(Q);
+qMax = max(Q);
+Qsave = qMin:dQ:qMax;
+if isempty(Qsave) || Qsave(end) < qMax
+	Qsave = [Qsave, qMax];
+end
+Qsave = unique(Qsave, 'stable');
+Vsave = interp1(Q, V, Qsave, 'pchip');
+hInterp = plot(Qsave, Vsave);
 title('Anode Delithiation: Boundary Points vs Full Throughput Curve')
 xlabel('Capacity / Throughput (Ah)')
 ylabel('Voltage (V)')
-legend([hQBefore, hThroughput], {'Boundary points (unscaled)', 'Full throughput trajectory'}, 'Location', 'best')
-
-% Interpolate to a uniform 1 Ah grid for downstream model use.
-figure; hScaled = plot(Q, V, 'o-');
-Qsave = min(Q):1:max(Q);
-Vsave = interp1(Q, V, Qsave, 'pchip');
-hold on
-hInterp = plot(Qsave, Vsave);
-title('Anode Delithiation: Scaled and Interpolated OCP Line')
-xlabel('Capacity (Ah)')
-ylabel('Voltage (V)')
-legend([hScaled, hInterp], {'Profile scaled to half-cell capacity', 'Profile interpolated with 1Ah grid'}, 'Location', 'best')
+legend([hQBefore, hThroughput, hInterp], {'Boundary points', 'Full throughput trajectory', 'Profile interpolated with 0.2Ah grid'}, 'Location', 'best')
 
 % Store the interpolated delithiation profile for the combined anode table.
 Qsave_anode_delith = Qsave(:);
@@ -133,38 +135,39 @@ linkaxes([axCurrent, axVoltage], 'x')
 
 % Integrate current to compute throughput over the selected interval.
 throughput = cumtrapz(time(index(1):end), abs(current(index(1):end)));
+% Preserve the lithiation capacity-axis reference for later comparison plots.
+throughput_anode_lith = throughput;
+% Preserve the matching full lithiation voltage segment for overlay plots.
+voltage_full_anode_lith = voltage(index(1):end);
 
 % Sample throughput at transition points and include final endpoint.
-QbeforeScaling = throughput([index(1:end) - index(1) + 1; numel(throughput)]);
+Q = throughput([index(1:end) - index(1) + 1; numel(throughput)]);
 
-% Scale capacity so minimum reaches the target lithiation value (-300 Ah).
-scaling = 300 / max(QbeforeScaling);
-
-% Create scaled capacity-voltage lookup vectors.
-Q = QbeforeScaling * scaling;%
+% Create capacity-voltage lookup vectors.
 V = voltage([index(1:end); numel(voltage)]);
 
 % Plot reduced points against full throughput curve for sanity checking.
 figure;
-hQBefore = plot(QbeforeScaling, V, 'o-');
+hQBefore = plot(Q, V, 'o-');
 hold on
-hThroughput = plot(throughput, voltage(index(1):end));
+hThroughput = plot(throughput, voltage_full_anode_lith);
+% Compute interpolation to a uniform 0.2 Ah grid for downstream model use.
+% Use explicit min/max and append qMax when needed, because colon stepping can
+% miss the exact endpoint due to floating-point step accumulation.
+dQ = 0.2;
+qMin = min(Q);
+qMax = max(Q);
+Qsave = qMin:dQ:qMax;
+if isempty(Qsave) || Qsave(end) < qMax
+	Qsave = [Qsave, qMax];
+end
+Qsave = unique(Qsave, 'stable');
+Vsave = interp1(Q, V, Qsave, 'pchip');
+hInterp = plot(Qsave, Vsave);
 title('Anode Lithiation: Boundary Points vs Full Throughput Curve')
 xlabel('Capacity / Throughput (Ah)')
 ylabel('Voltage (V)')
-legend([hQBefore, hThroughput], {'Boundary points (unscaled)', 'Full throughput trajectory'}, 'Location', 'best')
-
-% Interpolate onto a 1 Ah grid.
-figure; hScaled = plot(Q, V, 'o-');
-Qsave = min(Q):1:max(Q);
-Vsave = interp1(Q, V, Qsave, 'pchip');
-hold on
-hInterp = plot(Qsave, Vsave);
-title('Anode Lithiation: Scaled and Interpolated OCP Line')
-xlabel('Capacity (Ah)')
-ylabel('Voltage (V)')
-legend([hScaled, hInterp], {'Profile scaled to half-cell capacity', 'Profile interpolated with 1Ah grid'}, 'Location', 'best')
-xlim()
+legend([hQBefore, hThroughput, hInterp], {'Boundary points', 'Full throughput trajectory', 'Profile interpolated with 0.2Ah grid'}, 'Location', 'best')
 
 % Combine delithiation and lithiation into one anode table for export/use.
 Qsave_anode_lith = Qsave(:);
@@ -182,12 +185,31 @@ xlabel('Capacity (Ah)')
 ylabel('Voltage (V)')
 legend([hAnodeDelith, hAnodeLith], {'Delithiation', 'Lithiation'}, 'Location', 'best')
 
+%% Compare the interpolated anode lithiation and delithiation for publication
+fprintf('[3/8] Anode: plotting comparison figure...\n');
+% Compute the normalisation factor: maximum capacity across both profiles.
+Qmax_anode = max([max(Qsave_anode_delith); max(Qsave_anode_lith)]);
+figure;
+% Divide all capacity axes by Qmax_anode so x-axis represents SoC (0–1).
+hAnodeDelith = plot(Qsave_anode_delith / Qmax_anode, Vsave_anode_delith, 'r','LineWidth', 1.5);
+hold on
+hAnodeLith = plot(Qsave_anode_lith / Qmax_anode, Vsave_anode_lith, 'k', 'LineWidth', 1.5);
+% Overlay the same full voltage segments with their throughput axes normalised
+% by the same Qmax so all traces share the same SoC x-axis.
+hVoltageFullDel = plot(throughput_anode_del / Qmax_anode, voltage_full_anode_del, 'b--', 'LineWidth', 1.1);
+hVoltageFullLith = plot(throughput_anode_lith / Qmax_anode, voltage_full_anode_lith, 'b--', 'LineWidth', 1.1);
+title('Anode Interpolated Lithiation vs Delithiation Profiles')
+xlabel('SoC (-)')
+ylabel('Voltage (V)')
+legend([hAnodeDelith, hAnodeLith, hVoltageFullDel, hVoltageFullLith], {'Delithiation', 'Lithiation', 'GITT voltage'}, 'Location', 'best')
+
 %%
+% Store normalised SoC (capacity divided by Qmax_anode) in place of raw Ah values.
 T_anode = table( ...
 	[repmat("Delithiation", numel(Qsave_anode_delith), 1); repmat("Lithiation", numel(Qsave_anode_lith), 1)], ...
-	[Qsave_anode_delith; Qsave_anode_lith], ...
+	[Qsave_anode_delith / Qmax_anode; Qsave_anode_lith / Qmax_anode], ...
 	[Vsave_anode_delith; Vsave_anode_lith], ...
-	'VariableNames', {'Mode', 'Capacity(Ah)', 'Voltage(V)'});
+	'VariableNames', {'Mode', 'SoC(-)', 'Voltage(V)'});
 
 % Write the combined anode table to CSV when export is needed.
 % writetable(T_anode, 'GITT_anode_combined.csv');
@@ -227,36 +249,39 @@ legend([hVoltage, hVoltageSteps], {'Voltage', 'Detected step indices'}, 'Locatio
 linkaxes([axCurrent, axVoltage], 'x')
 
 % Integrate current to form throughput and then reduce to boundary points.
-throughput = cumtrapz(time(index(1):index(end)+50), current(index(1):index(end)+50));
-QbeforeScaling = throughput([index(1:end) - index(1) + 1; numel(throughput)]);
+throughput = cumtrapz(time(index(2):index(end)+50), current(index(2):index(end)+50));
+% Preserve the delithiation capacity-axis reference for later comparison plots.
+throughput_cathode_del = throughput;
+% Preserve the matching full delithiation voltage segment for overlay plots.
+voltage_full_cathode_del = voltage(index(2):index(end)+50);
+Q = throughput([index(2:end) - index(2) + 1; numel(throughput)]);
 
-% Scale to target cathode delithiation capacity (163 Ah).
-scaling = 163 / max(QbeforeScaling);
-
-% Scaled capacity-voltage profile.
-Q = QbeforeScaling * scaling;
-V = voltage([index(1:end); index(end)+50]);
+% Capacity-voltage profile.
+V = voltage([index(2:end); index(end)+50]);
 
 % Visual check of reduced profile vs. full integrated trajectory.
 figure;
-hQBefore = plot(QbeforeScaling, V, 'o-');
+hQBefore = plot(Q, V, 'o-');
 hold on
-hThroughput = plot(throughput, voltage(index(1):index(end)+50));
+hThroughput = plot(throughput, voltage_full_cathode_del);
+% Compute interpolation and extrapolation to 108% of max capacity range.
+% Use explicit min/max and append qMax when needed, because colon stepping can
+% miss the exact endpoint due to floating-point step accumulation.
+dQ = 0.2;
+qMin = min(Q);
+% qMax = max(Q) * 1.08;
+qMax = max(Q);
+Qsave = qMin:dQ:qMax;
+if isempty(Qsave) || Qsave(end) < qMax
+	Qsave = [Qsave, qMax];
+end
+Qsave = unique(Qsave, 'stable');
+Vsave = interp1(Q, V, Qsave, 'pchip');
+hInterp = plot(Qsave, Vsave);
 title('Cathode Delithiation: Boundary Points vs Full Throughput Curve')
 xlabel('Capacity / Throughput (Ah)')
 ylabel('Voltage (V)')
-legend([hQBefore, hThroughput], {'Boundary points (unscaled)', 'Full throughput trajectory'}, 'Location', 'best')
-
-% Interpolate and extrapolate to 108% of max capacity range.
-figure; hScaled = plot(Q, V, 'o-');
-Qsave = min(Q):1:max(Q) * 1.08;
-Vsave = interp1(Q, V, Qsave, 'pchip');
-hold on
-hInterp = plot(Qsave, Vsave);
-title('Cathode Delithiation: Scaled and Interpolated OCP Line')
-xlabel('Capacity (Ah)')
-ylabel('Voltage (V)')
-legend([hScaled, hInterp], {'Profile scaled to half-cell capacity', 'Interpolated + extrapolated profile'}, 'Location', 'best')
+legend([hQBefore, hThroughput, hInterp], {'Boundary points', 'Full throughput trajectory', 'Profile interpolated + extrapolated with 0.2Ah grid'}, 'Location', 'best')
 
 % Store the interpolated delithiation profile for the combined cathode table.
 Qsave_cathode_delith = Qsave(:);
@@ -297,38 +322,62 @@ linkaxes([axCurrent, axVoltage], 'x')
 
 % Integrate current and sample at detected boundaries.
 throughput = cumtrapz(time(index(1):end), abs(current(index(1):end)));
-QbeforeScaling = throughput([index(1:end) - index(1) + 1; numel(throughput)]);
+% Preserve the lithiation capacity-axis reference for later comparison plots.
 
-% Scale to target cathode lithiation capacity (171.4 Ah).
-scaling = 171.4 / max(QbeforeScaling);
+% Preserve the matching full lithiation voltage segment for overlay plots.
+voltage_full_cathode_lith = voltage(index(1):end);
+Q = throughput([index(1:end) - index(1) + 1; numel(throughput)]);
 
-% Construct profile scaled to half-cell capacity vectors.
-Q = QbeforeScaling * scaling;
+% Construct profile capacity-voltage vectors.
 V = voltage([index(1:end); numel(voltage)]);
 
+
+% Compute interpolation across an extended lower capacity range (6% offset).
+% Use explicit min/max and append qMax when needed, because colon stepping can
+% miss the exact endpoint due to floating-point step accumulation.
+
+
+
+%lets take the max voltage of the delithiation test (which has extrapolation) and get the missing capacity points for lithiation
+% Q_extrapolated = interp1(V, Q, [Vsave_cathode_delith(end); V], 'pchip'); 
+% ExtraCapaicty = -Q_extrapolated(1) ;
+% Q_extrapolated = Q_extrapolated + ExtraCapaicty; % Shift the extrapolated points to start from zero capacity for lithiation
+% qMin = min(Q_extrapolated);
+% qMax = max(Q_extrapolated);
+
+dQ = 0.2;
+qMin = min(Q);
+qMax = max(Q);
+Qsave = qMin:dQ:qMax;
+if isempty(Qsave) || Qsave(end) < qMax
+	Qsave = [Qsave, qMax];
+end
+Qsave = unique(Qsave, 'stable');
+Vsave = interp1(Q,  V, Qsave, 'pchip');
+
+
+
 % Plot reduced and full trajectories for quality control.
+
+
+%extrapolation
+% Vsave = interp1(Q_extrapolated, [Vsave_cathode_delith(end); V], Qsave, 'pchip');
+% Q = Q+ExtraCapaicty; %correct for the extrapolation
+% throughput = throughput+ExtraCapaicty; %correct for the extrapolation
+
+throughput_cathode_lith = throughput;
 figure;
-hQBefore = plot(QbeforeScaling, V, 'o-');
+hQBefore = plot(Q, V, 'o-');
 hold on
-hThroughput = plot(throughput, voltage(index(1):end));
+hThroughput = plot(throughput, voltage_full_cathode_lith);
+hInterp = plot(Qsave, Vsave);
 title('Cathode Lithiation: Boundary Points vs Full Throughput Curve')
 xlabel('Capacity / Throughput (Ah)')
 ylabel('Voltage (V)')
-legend([hQBefore, hThroughput], {'Boundary points (unscaled)', 'Full throughput trajectory'}, 'Location', 'best')
-
-% Interpolate across an extended lower capacity range (6% offset).
-figure; hScaled = plot(Q, V, 'o-');
-Qsave = min(Q) - max(Q) * 0.06:1:max(Q);
-Vsave = interp1(Q, V, Qsave, 'pchip');
-hold on
-hInterp = plot(Qsave, Vsave);
-title('Cathode Lithiation: Scaled and Interpolated OCP Line')
-xlabel('Capacity (Ah)')
-ylabel('Voltage (V)')
-legend([hScaled, hInterp], {'Profile scaled to half-cell capacity', 'Interpolated + extrapolated profile'}, 'Location', 'best')
+legend([hQBefore, hThroughput, hInterp], {'Boundary points', 'Full throughput trajectory', 'Profile interpolated + extrapolated with 0.2Ah grid'}, 'Location', 'best')
 
 % Combine delithiation and lithiation into one cathode table for export/use.
-Qsave_cathode_lith = Qsave(:) + max(Q) * 0.06;
+Qsave_cathode_lith = Qsave(:);
 Vsave_cathode_lith = Vsave(:);
 fprintf('  Done. %d interpolated points, Q range [%.1f, %.1f] Ah\n', numel(Qsave_cathode_lith), min(Qsave_cathode_lith), max(Qsave_cathode_lith));
 
@@ -343,12 +392,31 @@ xlabel('Capacity (Ah)')
 ylabel('Voltage (V)')
 legend([hCathodeDelith, hCathodeLith], {'Delithiation', 'Lithiation'}, 'Location', 'best')
 
+%% Compare the interpolated cathode lithiation and delithiation for publication
+fprintf('[6b/8] Cathode: plotting publication figure...\n');
+% Compute the normalisation factor: maximum capacity across both profiles.
+Qmax_cathode = max([max(Qsave_cathode_delith); max(Qsave_cathode_lith)]);
+figure;
+% Divide all capacity axes by Qmax_cathode so x-axis represents SoC (0-1).
+hCathodeDelith = plot(Qsave_cathode_delith / Qmax_cathode, Vsave_cathode_delith, 'k','LineWidth', 1.5);
+hold on
+hCathodeLith = plot(Qsave_cathode_lith / Qmax_cathode, Vsave_cathode_lith, 'LineWidth', 1.5);
+% Overlay the full voltage segments with their throughput axes normalised
+% by the same Qmax so all traces share the same SoC x-axis.
+hVoltageFullDel = plot(throughput_cathode_del / Qmax_cathode, voltage_full_cathode_del, 'b--', 'LineWidth', 1.1);
+hVoltageFullLith = plot(throughput_cathode_lith / Qmax_cathode, voltage_full_cathode_lith, 'b--', 'LineWidth', 1.1);
+title('Cathode Interpolated Lithiation vs Delithiation Profiles')
+xlabel('SoC (-)')
+ylabel('Voltage (V)')
+legend([hCathodeDelith, hCathodeLith, hVoltageFullDel, hVoltageFullLith], {'Lithiation', 'Delithiation', 'GITT voltage'}, 'Location', 'best')
+
 %%
+% Store normalised SoC (capacity divided by Qmax_cathode) in place of raw Ah values.
 T_cathode = table( ...
 	[repmat("Delithiation", numel(Qsave_cathode_delith), 1); repmat("Lithiation", numel(Qsave_cathode_lith), 1)], ...
-	[Qsave_cathode_delith; Qsave_cathode_lith], ...
+	[Qsave_cathode_delith / Qmax_cathode; Qsave_cathode_lith / Qmax_cathode], ...
 	[Vsave_cathode_delith; Vsave_cathode_lith], ...
-	'VariableNames', {'Mode', 'Capacity(Ah)', 'Voltage(V)'});
+	'VariableNames', {'Mode', 'SoC(-)', 'Voltage(V)'});
 
 % Write the combined cathode table to CSV when export is needed.
 % writetable(T_cathode, 'GITT_cathode_combined.csv');

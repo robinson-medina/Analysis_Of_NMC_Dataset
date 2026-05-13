@@ -84,6 +84,16 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="Write combined anode/cathode OCP tables to CSV.",
     )
+    parser.add_argument(
+        "--no-show-figures",
+        action="store_true",
+        help="Skip opening figure windows after saving PNG outputs.",
+    )
+    parser.add_argument(
+        "--no-hold-figures",
+        action="store_true",
+        help="Do not keep figure windows open after showing them.",
+    )
     return parser.parse_args()
 
 
@@ -304,6 +314,7 @@ def process_profile(
     use_absolute_current: bool = False,
     shift_output_capacity_ah: float = 0.0,
     create_interpolation_plot: bool = True,
+    integrate_to_phase_end: bool = False,
 ) -> ProfileResult:
     """Run one full OCP extraction phase with plotting and interpolation."""
 
@@ -319,9 +330,13 @@ def process_profile(
 
     selected_transition_indices = transition_indices[boundary_start_offset:]
     integration_start_index = int(selected_transition_indices[0])
-    integration_end_index = clamp_endpoint(
-        int(transition_indices[-1]), integration_padding_samples, len(time_s)
-    )
+    if integrate_to_phase_end:
+        # Match MATLAB windows that integrate from first selected pulse to the end of the phase.
+        integration_end_index = len(time_s) - 1
+    else:
+        integration_end_index = clamp_endpoint(
+            int(transition_indices[-1]), integration_padding_samples, len(time_s)
+        )
 
     create_step_figure(x_values, current_a, voltage_v, selected_transition_indices, title_prefix, x_label)
 
@@ -504,6 +519,7 @@ def main() -> Tuple[pd.DataFrame, pd.DataFrame]:
         x_values=anode_lithiation_table["TestTime"],
         x_label="Time (s)",
         use_absolute_current=True,
+        integrate_to_phase_end=True,
     )
     print(
         "  Done. "
@@ -560,6 +576,7 @@ def main() -> Tuple[pd.DataFrame, pd.DataFrame]:
         x_label="Time (s)",
         use_absolute_current=True,
         create_interpolation_plot=False,
+        integrate_to_phase_end=True,
     )
     cathode_shift_ah = float(np.max(temporary_profile.boundary_capacity_ah) * 0.06)
     cathode_lithiation_capacity_ah, cathode_lithiation_voltage_v = build_interpolated_profile(
@@ -619,6 +636,17 @@ def main() -> Tuple[pd.DataFrame, pd.DataFrame]:
 
     print("[8/8] Saving figures to pngs/ folder...")
     save_all_figures(args.png_dir)
+
+    if not args.no_show_figures:
+        print("[9/9] Showing figures in non-blocking mode...")
+        plt.show(block=False)
+        # Flush one GUI event cycle so windows appear without blocking script completion.
+        plt.pause(0.1)
+        if not args.no_hold_figures:
+            print("      Figures are open. Press Enter in this terminal to finish.")
+            input()
+            plt.close("all")
+
     print("[9/9] --- extractOCPLines complete ---")
     return anode_combined_table, cathode_combined_table
 

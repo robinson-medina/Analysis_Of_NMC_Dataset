@@ -34,6 +34,7 @@ The scripts enable analysis of:
 │   ├── PlotEISData.py            # Python EIS visualization
 │   ├── ExtractAgeingData.py      # Python data extraction
 │   ├── PlotCapacityDegradationOverview.py # Python capacity trends
+│   ├── PlotResistanceIncreaseOverview.py  # Python resistance trends
 │   └── extractOCPLines.py        # Python OCP line extraction
 │
 ├── docs/                         # Documentation and project tracking

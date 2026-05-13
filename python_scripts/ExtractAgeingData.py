@@ -13,7 +13,7 @@ Converted to Python from MATLAB
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
+import importlib
 import time
 import sys
 import os
@@ -25,23 +25,45 @@ functions_dir_parent = Path(__file__).parent.parent / 'Functions'
 # New location: same folder as script
 functions_dir_local = Path(__file__).parent / 'Functions'
 
-if functions_dir_local.exists():
-    sys.path.append(str(functions_dir_local))
-elif functions_dir_parent.exists():
-    sys.path.append(str(functions_dir_parent))
-else:
-    raise ImportError("Functions directory not found in either location")
+def load_helpers() -> dict[str, callable]:
+    """Load required helper functions dynamically and report missing modules clearly."""
 
-# Import functions
-from insertNaNAtGaps import insert_nan_at_gaps
-from computeCumulativeCharge import compute_cumulative_charge
-from plotOverviewData import plot_overview_data
-from findCheckupSegments import find_checkup_segments
-from analyzeCheckupDischarge import analyze_checkup_discharge
-from extractResistanceValues import extract_resistance_values
-from plotCapacityAndResistanceTrending import plot_capacity_and_resistance_trending
-from analyzeDVdtAfterCharge import analyze_dvdt_after_charge
-from getCellLabel import get_cell_label
+    for functions_dir in [functions_dir_local, functions_dir_parent]:
+        if functions_dir.exists() and str(functions_dir) not in sys.path:
+            sys.path.append(str(functions_dir))
+
+    required_helpers = {
+        "insertNaNAtGaps": "insert_nan_at_gaps",
+        "computeCumulativeCharge": "compute_cumulative_charge",
+        "plotOverviewData": "plot_overview_data",
+        "findCheckupSegments": "find_checkup_segments",
+        "analyzeCheckupDischarge": "analyze_checkup_discharge",
+        "extractResistanceValues": "extract_resistance_values",
+        "plotCapacityAndResistanceTrending": "plot_capacity_and_resistance_trending",
+        "analyzeDVdtAfterCharge": "analyze_dvdt_after_charge",
+        "getCellLabel": "get_cell_label",
+        "exportOCPDischarge": "export_ocp_discharge",
+    }
+
+    loaded_helpers: dict[str, callable] = {}
+    missing_helpers: list[str] = []
+    for module_name, function_name in required_helpers.items():
+        try:
+            module = importlib.import_module(module_name)
+            loaded_helpers[function_name] = getattr(module, function_name)
+        except Exception:
+            missing_helpers.append(f"{module_name}.{function_name}")
+
+    if missing_helpers:
+        print("Missing helper modules/functions required for full ExtractAgeingData parity:")
+        for missing_helper in missing_helpers:
+            print(f"  - {missing_helper}")
+        print("Expected helper directory locations:")
+        print(f"  - {functions_dir_local}")
+        print(f"  - {functions_dir_parent}")
+        return {}
+
+    return loaded_helpers
 
 def main():
     """Main analysis workflow for battery test data."""
@@ -49,12 +71,30 @@ def main():
     print('\n' + '='*40)
     print('Battery Test Data Analysis for NextBMS journal')
     print('='*40)
+
+    helpers = load_helpers()
+    if not helpers:
+        print('Stopping execution because required helper modules are not available in this workspace.')
+        return
     
     # Configuration: set default folder to Cyclic_ageing_data (can be changed as needed)
     desired_folder = r'\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\Cyclic_ageing_data'
 
+    # MATLAB parity: when cell_num is set, process only that cell.
+    cell_num = 'A2.02_Cell_56'
+
     # Get all folders in the directory matching *_Cell_*
-    folders = [f for f in os.listdir(desired_folder) if os.path.isdir(os.path.join(desired_folder, f)) and '_Cell_' in f]
+    all_folders = [
+        f for f in os.listdir(desired_folder)
+        if os.path.isdir(os.path.join(desired_folder, f)) and '_Cell_' in f
+    ]
+    if cell_num:
+        if cell_num not in all_folders:
+            print(f'Configured cell was not found: {cell_num}')
+            return
+        folders = [cell_num]
+    else:
+        folders = all_folders
 
     # Initialize lists to accumulate data from all cells
     all_resistance_data = []
@@ -67,7 +107,7 @@ def main():
         plt.close('all')  # Close all figures before processing a new cell
 
         # Generate descriptive label for cell based on ageing test plan
-        cell_label = get_cell_label(cell_num)
+        cell_label = helpers['get_cell_label'](cell_num)
 
         print('\n' + '='*40)
         print(f'Battery Test Data Analysis for NextBMS journal')
@@ -79,14 +119,6 @@ def main():
         # Extract save path for figures from load_name
         save_path = os.path.dirname(load_name)
         print(f'Figures will be saved to: {save_path}')
-
-        # Remove existing PNG files in the cell folder before saving new ones
-        for fname in os.listdir(save_path):
-            if fname.endswith('.png'):
-                try:
-                    os.remove(os.path.join(save_path, fname))
-                except Exception as e:
-                    print(f'Could not delete {fname}: {e}')
 
         start_time = time.time()
 
@@ -107,17 +139,20 @@ def main():
             time_yy_mm_dd.iloc[0] = pd.to_datetime(time_yy_mm_dd_str[0], format='%d-%b-%Y %H:%M:%S.%f')
 
             # Convert subsequent values to cumulative seconds and add to base time
+            increase_s = None
             if len(time_yy_mm_dd_str) > 1:
                 increase_s = np.cumsum(pd.to_numeric(time_yy_mm_dd_str[1:], errors='coerce'))
                 time_yy_mm_dd.iloc[1:] = time_yy_mm_dd.iloc[0] + pd.to_timedelta(increase_s, unit='s')
 
             # Extract other variables - using column names to match MATLAB behavior
             try:
-                voltage_v = df['Voltage [V]'].values
-                current_a = df['Current [A]'].values
-                cell_temp_c = df['CellTemp [°C]'].values
-                chamber_temp_c = df['ChamberTemp [°C]'].values
+                # MATLAB readtable sanitizes column names by replacing symbols with underscores.
+                voltage_v = df['Voltage_V_'].values
+                current_a = df['Current_A_'].values
+                cell_temp_c = df['CellTemp__C_'].values
+                chamber_temp_c = df['ChamberTemp__C_'].values
             except KeyError:
+                # Fallback to positional indexing if unsanitized headers are present.
                 voltage_v = df.iloc[:, 1].values
                 current_a = df.iloc[:, 2].values
                 cell_temp_c = df.iloc[:, 3].values
@@ -126,12 +161,14 @@ def main():
             dwell_time_s = (time_yy_mm_dd - time_yy_mm_dd.iloc[0]).dt.total_seconds().values
 
             # Clear memory
-            del df, time_yy_mm_dd_str, increase_s
+            del df, time_yy_mm_dd_str
+            if increase_s is not None:
+                del increase_s
             print(f'Data extraction complete. (Elapsed: {time.time() - start_time:.2f} s)')
 
             # Insert NaN Values at Data Gaps
             (time_with_gaps, time_s, voltage, current, 
-             cell_temp, chamber_temp) = insert_nan_at_gaps(
+                 cell_temp, chamber_temp) = helpers['insert_nan_at_gaps'](
                 time_yy_mm_dd, dwell_time_s, voltage_v, current_a, 
                 cell_temp_c, chamber_temp_c)
 
@@ -139,11 +176,19 @@ def main():
             del time_yy_mm_dd, dwell_time_s, voltage_v, current_a, cell_temp_c, chamber_temp_c
 
             # Compute Cumulative Charge Integral
-            cumulative_integral = compute_cumulative_charge(time_s, current)
+            cumulative_integral = helpers['compute_cumulative_charge'](time_s, current)
 
             # Plot Overview Data
-            plot_overview_data(time_with_gaps, current, voltage, cell_temp, 
-                              chamber_temp, cumulative_integral, cell_num, cell_label)
+            helpers['plot_overview_data'](
+                time_with_gaps,
+                current,
+                voltage,
+                cell_temp,
+                chamber_temp,
+                cumulative_integral,
+                cell_num,
+                cell_label,
+            )
             fig_overview = plt.gcf()
 
             # Checkup Capacity Analysis
@@ -151,8 +196,14 @@ def main():
             end_time_analysis = time_with_gaps[-20]
 
             # Find constant-current discharge segments for checkup analysis
-            segments = find_checkup_segments(time_with_gaps, voltage, current, time_s, 
-                                            start_time_analysis, end_time_analysis)
+            segments = helpers['find_checkup_segments'](
+                time_with_gaps,
+                voltage,
+                current,
+                time_s,
+                start_time_analysis,
+                end_time_analysis,
+            )
 
             # Select data within the specified datetime range for plotting
             selected_indices = (time_with_gaps >= start_time_analysis) & (time_with_gaps <= end_time_analysis)
@@ -165,21 +216,46 @@ def main():
             window_size = 5000
 
             # Analyze discharge curves and calculate checkup capacity
-            (checkup_capacity_timestamp, checkup_capacity_ah, checkup_capacity_fec, legends) = analyze_checkup_discharge(
-                segments, selected_time, selected_voltage, selected_current, 
-                selected_time_s, window_size, cell_num, cell_label)
+            (
+                checkup_capacity_timestamp,
+                checkup_capacity_ah,
+                checkup_capacity_fec,
+                legends,
+                checkup_ocv_v,
+                dqdv_apervs,
+                segment_capacity_ah,
+                checkup_soc,
+            ) = helpers['analyze_checkup_discharge'](
+                segments,
+                selected_time,
+                selected_voltage,
+                selected_current,
+                selected_time_s,
+                window_size,
+                cell_num,
+                cell_label,
+            )
             fig_checkup_discharge = plt.gcf()
+
+            helpers['export_ocp_discharge'](
+                save_path,
+                cell_num,
+                checkup_soc,
+                checkup_ocv_v,
+                checkup_capacity_ah,
+                checkup_capacity_timestamp,
+            )
 
             # Extract Resistance Values
             (checkup_resistance_timestamp, 
              checkup_resistance_ohm,
-             checkup_resistance_fec) = extract_resistance_values(
+             checkup_resistance_fec) = helpers['extract_resistance_values'](
                 time_with_gaps, voltage, current, time_s, 
                 start_time_analysis, end_time_analysis, cell_num, cell_label)
             fig_resistance = plt.gcf()
 
             # Plot Capacity and Resistance Trending
-            plot_capacity_and_resistance_trending(
+            helpers['plot_capacity_and_resistance_trending'](
                 checkup_capacity_timestamp, checkup_capacity_ah, checkup_capacity_fec,
                 checkup_resistance_timestamp, checkup_resistance_ohm, checkup_resistance_fec,
                 cell_num, cell_label)
@@ -189,23 +265,30 @@ def main():
             constant_current_value_a = -11.6
 
             # Perform dV/dt analysis
-            (plotted_segments, dvdt_data) = analyze_dvdt_after_charge(
+            (plotted_segments, dvdt_data) = helpers['analyze_dvdt_after_charge'](
                 selected_time, selected_voltage, selected_current, 
                 selected_time_s, constant_current_value_a, cell_num, cell_label)
             fig_dvdt = plt.gcf()
 
+            # MATLAB parity: delete old PNG files immediately before saving new figures.
+            for fname in os.listdir(save_path):
+                if fname.endswith('.png'):
+                    try:
+                        os.remove(os.path.join(save_path, fname))
+                    except Exception as e:
+                        print(f'Could not delete {fname}: {e}')
+
             # Save All Figures
             print('\nSaving figures...')
-            plt.figure(fig_overview.number)
-            plt.savefig(os.path.join(save_path, f'{cell_num}_Overview.png'))
-            plt.figure(fig_checkup_discharge.number)
-            plt.savefig(os.path.join(save_path, f'{cell_num}_CheckupDischarge.png'))
-            plt.figure(fig_resistance.number)
-            plt.savefig(os.path.join(save_path, f'{cell_num}_Resistance.png'))
-            plt.figure(fig_cap_res_trend.number)
-            plt.savefig(os.path.join(save_path, f'{cell_num}_CapacityResistanceTrend.png'))
-            plt.figure(fig_dvdt.number)
-            plt.savefig(os.path.join(save_path, f'{cell_num}_dVdtAnalysis.png'))
+            figures = [
+                (fig_overview, f'{cell_num}_Overview.png'),
+                (fig_checkup_discharge, f'{cell_num}_CheckupDischarge.png'),
+                (fig_resistance, f'{cell_num}_Resistance.png'),
+                (fig_cap_res_trend, f'{cell_num}_CapacityResistanceTrend.png'),
+                (fig_dvdt, f'{cell_num}_dVdtAnalysis.png'),
+            ]
+            for fig, fig_name in figures:
+                fig.savefig(os.path.join(save_path, fig_name))
 
             print('\n' + '='*40)
             print(f'All figures saved to: {save_path}')
@@ -235,7 +318,7 @@ def main():
 
         except Exception as e:
             print(f'Error processing cell {cell_num}: {str(e)}')
-            continue
+            raise
 
     # Save All Tables to CSV (with Ncell naming)
     print('\n' + '='*40)
