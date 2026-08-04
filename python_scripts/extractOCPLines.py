@@ -1,6 +1,6 @@
 """
 Summary: Extract OCP-like lookup lines from anode and cathode GITT datasets,
-build scaled/interpolated profiles, and save the diagnostic figures to pngs/.
+build interpolated profiles, and save the diagnostic figures to pngs/.
 Author: Copilot
 Date: 2026-04-14
 Inputs/Outputs: Reads anode/cathode CSV files with DateTime, TestTime, Current,
@@ -24,20 +24,17 @@ from scipy.interpolate import PchipInterpolator
 
 
 CURRENT_STEP_THRESHOLD_A = 1e-6
-ANODE_DELITH_TARGET_CAPACITY_AH = 290.0
-ANODE_LITH_TARGET_CAPACITY_AH = 300.0
-CATHODE_DELITH_TARGET_CAPACITY_AH = 163.0
-CATHODE_LITH_TARGET_CAPACITY_AH = 171.4
+INTERPOLATION_STEP_AH = 0.2
 BOUNDARY_PADDING_SAMPLES = 50
 
 DEFAULT_ANODE_LOCAL = "NEXTMBS-full-charge-discharge-GITT-full0charge-discharge-NMC-anode.csv"
 DEFAULT_CATHODE_LOCAL = "NEXTMBS-full-charge-discharge-GITT-full0charge-discharge-NMC-cathode.csv"
-DEFAULT_ANODE_NETWORK = Path(
-    r"\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\OCP_data\Anode_Graphite\NEXTMBS-full-charge-discharge-GITT-full0charge-discharge-NMC-anode.csv"
-)
-DEFAULT_CATHODE_NETWORK = Path(
-    r"\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\OCP_data\Cathode_NMC532\NEXTMBS-full-charge-discharge-GITT-full0charge-discharge-NMC-cathode.csv"
-)
+# DataRoot: single switch to the dataset root holding 1_Teardown/2_HalfCell/
+# 3_Characterization/4_Ageing. Change this one line to retarget the script.
+DATA_ROOT = Path(r"\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot")
+OCP_ROOT = DATA_ROOT / "2_HalfCell" / "OCP_data"
+DEFAULT_ANODE_NETWORK = OCP_ROOT / "Anode_Graphite" / DEFAULT_ANODE_LOCAL
+DEFAULT_CATHODE_NETWORK = OCP_ROOT / "Cathode_NMC532" / DEFAULT_CATHODE_LOCAL
 
 
 @dataclass
@@ -48,6 +45,8 @@ class ProfileResult:
     boundary_voltage_v: np.ndarray
     interpolated_capacity_ah: np.ndarray
     interpolated_voltage_v: np.ndarray
+    throughput_axis_ah: np.ndarray
+    full_voltage_v: np.ndarray
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -238,17 +237,21 @@ def create_throughput_figure(
     full_voltage_v: np.ndarray,
     boundary_capacity_axis: np.ndarray,
     boundary_voltage_v: np.ndarray,
+    interpolated_capacity_ah: np.ndarray,
+    interpolated_voltage_v: np.ndarray,
     title_prefix: str,
+    interpolation_legend_text: str,
 ) -> None:
-    """Create the boundary-vs-trajectory diagnostic figure."""
+    """Create the boundary-vs-trajectory diagnostic figure with interpolation overlay."""
 
     plt.figure()
     plt.plot(boundary_capacity_axis, boundary_voltage_v, "o-")
     plt.plot(throughput_axis, full_voltage_v)
+    plt.plot(interpolated_capacity_ah, interpolated_voltage_v)
     plt.title(f"{title_prefix}: Boundary Points vs Full Throughput Curve")
     plt.xlabel("Capacity / Throughput (Ah)")
     plt.ylabel("Voltage (V)")
-    plt.legend(["Boundary points (unscaled)", "Full throughput trajectory"], loc="best")
+    plt.legend(["Boundary points", "Full throughput trajectory", interpolation_legend_text], loc="best")
     plt.tight_layout()
 
 
@@ -277,9 +280,10 @@ def build_interpolated_profile(
     boundary_voltage_v: np.ndarray,
     interpolation_start_ah: float,
     interpolation_stop_ah: float,
+    interpolation_step_ah: float = INTERPOLATION_STEP_AH,
     shift_output_capacity_ah: float = 0.0,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Interpolate the reduced profile onto a 1 Ah grid using a PCHIP curve."""
+    """Interpolate the reduced profile onto an endpoint-safe regular grid using PCHIP."""
 
     if interpolation_stop_ah < interpolation_start_ah:
         raise ValueError("Interpolation stop must be greater than or equal to interpolation start.")
@@ -294,7 +298,14 @@ def build_interpolated_profile(
     if unique_capacity_ah.size < 2:
         raise ValueError("Insufficient unique capacity points for interpolation.")
 
-    interpolation_axis = np.arange(interpolation_start_ah, interpolation_stop_ah + 1.0, 1.0)
+    # Build the interpolation axis with a fixed step while guaranteeing that the
+    # exact interpolation stop value is included (colon-style stepping can miss
+    # the endpoint because of floating-point accumulation).
+    interpolation_axis = np.arange(interpolation_start_ah, interpolation_stop_ah + interpolation_step_ah, interpolation_step_ah)
+    if interpolation_axis.size == 0 or interpolation_axis[-1] < interpolation_stop_ah:
+        interpolation_axis = np.append(interpolation_axis, interpolation_stop_ah)
+    interpolation_axis = np.unique(interpolation_axis)
+
     interpolator = PchipInterpolator(unique_capacity_ah, unique_voltage_v, extrapolate=True)
     interpolated_voltage_v = interpolator(interpolation_axis)
     return interpolation_axis + shift_output_capacity_ah, interpolated_voltage_v
@@ -304,7 +315,6 @@ def process_profile(
     phase_table: pd.DataFrame,
     direction: str,
     title_prefix: str,
-    target_capacity_ah: float,
     boundary_start_offset: int,
     integration_padding_samples: int,
     x_values: np.ndarray | pd.Series,
@@ -313,7 +323,6 @@ def process_profile(
     extend_min_fraction: float = 0.0,
     use_absolute_current: bool = False,
     shift_output_capacity_ah: float = 0.0,
-    create_interpolation_plot: bool = True,
     integrate_to_phase_end: bool = False,
 ) -> ProfileResult:
     """Run one full OCP extraction phase with plotting and interpolation."""
@@ -348,29 +357,16 @@ def process_profile(
     throughput_axis = cumulative_trapezoid(
         integration_current_a, time_s[integration_slice], initial=0.0
     )
+    full_voltage_v = voltage_v[integration_slice]
 
     relative_boundary_indices = selected_transition_indices - integration_start_index
     boundary_indices_with_endpoint = np.concatenate(
         [relative_boundary_indices, np.array([len(throughput_axis) - 1], dtype=int)]
     )
-    boundary_capacity_axis = throughput_axis[boundary_indices_with_endpoint]
-
-    if np.max(boundary_capacity_axis) <= 0.0:
-        raise ValueError(f"{title_prefix} produced a non-positive throughput axis.")
-
-    scaling_factor = target_capacity_ah / np.max(boundary_capacity_axis)
-    boundary_capacity_ah = boundary_capacity_axis * scaling_factor
+    boundary_capacity_ah = throughput_axis[boundary_indices_with_endpoint]
     boundary_voltage_v = voltage_v[
         np.concatenate([selected_transition_indices, np.array([integration_end_index], dtype=int)])
     ]
-
-    create_throughput_figure(
-        throughput_axis,
-        voltage_v[integration_slice],
-        boundary_capacity_axis,
-        boundary_voltage_v,
-        title_prefix,
-    )
 
     interpolation_start_ah = float(np.min(boundary_capacity_ah) - np.max(boundary_capacity_ah) * extend_min_fraction)
     interpolation_stop_ah = float(np.max(boundary_capacity_ah) * extend_max_factor)
@@ -379,27 +375,33 @@ def process_profile(
         boundary_voltage_v,
         interpolation_start_ah,
         interpolation_stop_ah,
+        interpolation_step_ah=INTERPOLATION_STEP_AH,
         shift_output_capacity_ah=shift_output_capacity_ah,
     )
 
-    legend_text = "Interpolated + extrapolated profile" if (
-        extend_max_factor != 1.0 or extend_min_fraction != 0.0
-    ) else "Profile interpolated with 1Ah grid"
-    if create_interpolation_plot:
-        create_interpolation_figure(
-            boundary_capacity_ah,
-            boundary_voltage_v,
-            interpolated_capacity_ah,
-            interpolated_voltage_v,
-            title_prefix,
-            legend_text,
-        )
+    legend_text = (
+        "Profile interpolated + extrapolated with 0.2Ah grid"
+        if (extend_max_factor != 1.0 or extend_min_fraction != 0.0)
+        else "Profile interpolated with 0.2Ah grid"
+    )
+    create_throughput_figure(
+        throughput_axis,
+        full_voltage_v,
+        boundary_capacity_ah,
+        boundary_voltage_v,
+        interpolated_capacity_ah,
+        interpolated_voltage_v,
+        title_prefix,
+        legend_text,
+    )
 
     return ProfileResult(
         boundary_capacity_ah=boundary_capacity_ah,
         boundary_voltage_v=boundary_voltage_v,
         interpolated_capacity_ah=interpolated_capacity_ah,
         interpolated_voltage_v=interpolated_voltage_v,
+        throughput_axis_ah=throughput_axis,
+        full_voltage_v=full_voltage_v,
     )
 
 
@@ -425,8 +427,9 @@ def create_comparison_figure(
 def build_combined_table(
     delithiation_profile: ProfileResult,
     lithiation_profile: ProfileResult,
+    qmax_ah: float,
 ) -> pd.DataFrame:
-    """Combine lithiation and delithiation profiles into one export-ready table."""
+    """Combine lithiation and delithiation profiles into one export-ready SoC table."""
 
     return pd.DataFrame(
         {
@@ -436,10 +439,10 @@ def build_combined_table(
                     np.repeat("Lithiation", len(lithiation_profile.interpolated_capacity_ah)),
                 ]
             ),
-            "Capacity(Ah)": np.concatenate(
+            "SoC(-)": np.concatenate(
                 [
-                    delithiation_profile.interpolated_capacity_ah,
-                    lithiation_profile.interpolated_capacity_ah,
+                    delithiation_profile.interpolated_capacity_ah / qmax_ah,
+                    lithiation_profile.interpolated_capacity_ah / qmax_ah,
                 ]
             ),
             "Voltage(V)": np.concatenate(
@@ -494,7 +497,6 @@ def main() -> Tuple[pd.DataFrame, pd.DataFrame]:
         anode_delithiation_table,
         direction="positive",
         title_prefix="Anode Delithiation",
-        target_capacity_ah=ANODE_DELITH_TARGET_CAPACITY_AH,
         boundary_start_offset=3,
         integration_padding_samples=BOUNDARY_PADDING_SAMPLES,
         x_values=anode_datetime_axis,
@@ -513,7 +515,6 @@ def main() -> Tuple[pd.DataFrame, pd.DataFrame]:
         anode_lithiation_table,
         direction="negative",
         title_prefix="Anode Lithiation",
-        target_capacity_ah=ANODE_LITH_TARGET_CAPACITY_AH,
         boundary_start_offset=1,
         integration_padding_samples=0,
         x_values=anode_lithiation_table["TestTime"],
@@ -536,9 +537,47 @@ def main() -> Tuple[pd.DataFrame, pd.DataFrame]:
         anode_lithiation_profile.interpolated_capacity_ah,
         anode_lithiation_profile.interpolated_voltage_v,
     )
+
+    print("[3b/8] Anode: plotting publication figure...")
+    qmax_anode = float(
+        max(
+            np.max(anode_delithiation_profile.interpolated_capacity_ah),
+            np.max(anode_lithiation_profile.interpolated_capacity_ah),
+        )
+    )
+    plt.figure()
+    plt.plot(
+        anode_delithiation_profile.interpolated_capacity_ah / qmax_anode,
+        anode_delithiation_profile.interpolated_voltage_v,
+        linewidth=1.5,
+    )
+    plt.plot(
+        anode_lithiation_profile.interpolated_capacity_ah / qmax_anode,
+        anode_lithiation_profile.interpolated_voltage_v,
+        linewidth=1.5,
+    )
+    plt.plot(
+        anode_delithiation_profile.throughput_axis_ah / qmax_anode,
+        anode_delithiation_profile.full_voltage_v,
+        "b--",
+        linewidth=1.1,
+    )
+    plt.plot(
+        anode_lithiation_profile.throughput_axis_ah / qmax_anode,
+        anode_lithiation_profile.full_voltage_v,
+        "b--",
+        linewidth=1.1,
+    )
+    plt.title("Anode Interpolated Lithiation vs Delithiation Profiles")
+    plt.xlabel("SoC (-)")
+    plt.ylabel("Voltage (V)")
+    plt.legend(["Delithiation", "Lithiation", "GITT voltage"], loc="best")
+    plt.tight_layout()
+
     anode_combined_table = build_combined_table(
         anode_delithiation_profile,
         anode_lithiation_profile,
+        qmax_anode,
     )
 
     print("[4/8] Cathode delithiation: loading data...")
@@ -549,7 +588,6 @@ def main() -> Tuple[pd.DataFrame, pd.DataFrame]:
         cathode_delithiation_table,
         direction="positive",
         title_prefix="Cathode Delithiation",
-        target_capacity_ah=CATHODE_DELITH_TARGET_CAPACITY_AH,
         boundary_start_offset=1,
         integration_padding_samples=BOUNDARY_PADDING_SAMPLES,
         x_values=cathode_delithiation_table["TestTime"],
@@ -565,40 +603,16 @@ def main() -> Tuple[pd.DataFrame, pd.DataFrame]:
 
     print("[5/8] Cathode lithiation: filtering data...")
     cathode_lithiation_table = select_phase(cathode_table, cathode_table["Current"] <= 0.0)
-    temporary_profile = process_profile(
+    cathode_lithiation_profile = process_profile(
         cathode_lithiation_table,
         direction="negative",
         title_prefix="Cathode Lithiation",
-        target_capacity_ah=CATHODE_LITH_TARGET_CAPACITY_AH,
         boundary_start_offset=1,
         integration_padding_samples=0,
         x_values=cathode_lithiation_table["TestTime"],
         x_label="Time (s)",
         use_absolute_current=True,
-        create_interpolation_plot=False,
         integrate_to_phase_end=True,
-    )
-    cathode_shift_ah = float(np.max(temporary_profile.boundary_capacity_ah) * 0.06)
-    cathode_lithiation_capacity_ah, cathode_lithiation_voltage_v = build_interpolated_profile(
-        temporary_profile.boundary_capacity_ah,
-        temporary_profile.boundary_voltage_v,
-        float(np.min(temporary_profile.boundary_capacity_ah) - cathode_shift_ah),
-        float(np.max(temporary_profile.boundary_capacity_ah)),
-        shift_output_capacity_ah=cathode_shift_ah,
-    )
-    create_interpolation_figure(
-        temporary_profile.boundary_capacity_ah,
-        temporary_profile.boundary_voltage_v,
-        cathode_lithiation_capacity_ah,
-        cathode_lithiation_voltage_v,
-        "Cathode Lithiation",
-        "Interpolated + extrapolated profile",
-    )
-    cathode_lithiation_profile = ProfileResult(
-        boundary_capacity_ah=temporary_profile.boundary_capacity_ah,
-        boundary_voltage_v=temporary_profile.boundary_voltage_v,
-        interpolated_capacity_ah=cathode_lithiation_capacity_ah,
-        interpolated_voltage_v=cathode_lithiation_voltage_v,
     )
     print(
         "  Done. "
@@ -615,9 +629,47 @@ def main() -> Tuple[pd.DataFrame, pd.DataFrame]:
         cathode_lithiation_profile.interpolated_capacity_ah,
         cathode_lithiation_profile.interpolated_voltage_v,
     )
+
+    print("[6b/8] Cathode: plotting publication figure...")
+    qmax_cathode = float(
+        max(
+            np.max(cathode_delithiation_profile.interpolated_capacity_ah),
+            np.max(cathode_lithiation_profile.interpolated_capacity_ah),
+        )
+    )
+    plt.figure()
+    plt.plot(
+        cathode_delithiation_profile.interpolated_capacity_ah / qmax_cathode,
+        cathode_delithiation_profile.interpolated_voltage_v,
+        linewidth=1.5,
+    )
+    plt.plot(
+        cathode_lithiation_profile.interpolated_capacity_ah / qmax_cathode,
+        cathode_lithiation_profile.interpolated_voltage_v,
+        linewidth=1.5,
+    )
+    plt.plot(
+        cathode_delithiation_profile.throughput_axis_ah / qmax_cathode,
+        cathode_delithiation_profile.full_voltage_v,
+        "b--",
+        linewidth=1.1,
+    )
+    plt.plot(
+        cathode_lithiation_profile.throughput_axis_ah / qmax_cathode,
+        cathode_lithiation_profile.full_voltage_v,
+        "b--",
+        linewidth=1.1,
+    )
+    plt.title("Cathode Interpolated Lithiation vs Delithiation Profiles")
+    plt.xlabel("SoC (-)")
+    plt.ylabel("Voltage (V)")
+    plt.legend(["Delithiation", "Lithiation", "GITT voltage"], loc="best")
+    plt.tight_layout()
+
     cathode_combined_table = build_combined_table(
         cathode_delithiation_profile,
         cathode_lithiation_profile,
+        qmax_cathode,
     )
 
     print(

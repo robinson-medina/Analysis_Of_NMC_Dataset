@@ -30,6 +30,11 @@ CheckUpOCV_V={};
 dQdV_AperVs={};
 SegmentCapacity_Ah={};
 CheckUpSoC={};
+% Pre-initialise trending outputs so the function is safe even when no valid
+% checkup is found (previously these were only created inside the loop).
+checkupCapacity_AhTimeStamp = NaT(0);
+checkupCapacity_Ah = [];
+checkupCapacityFEC = [];
 figure('Units','normalized', 'OuterPosition',[0 0 0.5 1]); % Create a figure that takes up half the screen width
 
 hold on
@@ -47,80 +52,80 @@ end
 BatteryCapacity_Ah = 58;
 FullEquivalentCycles = cumtrapz(selectedTimeS,abs(selectedCurrent))/BatteryCapacity_Ah/3600/2;
 
-ValidSegCount=1;
-for i = 1:length(segments)
+% Compute the per-checkup capacity / voltage / dQ-dV curves via the shared
+% helper (single source of the checkup formula, also used by PlotCellSummary.m).
+% This helper applies the identical acceptance test (V(1)>4.1 && V(end)<2.76)
+% and returns only the valid checkups, in age order.
+checkups = computeCheckupCurves(segments, selectedTime, selectedVoltage, ...
+    selectedCurrent, selectedTimeS, windowSize);
+
+for validSegCount = 1:numel(checkups)
+    thisCheckup    = checkups(validSegCount);
+    i              = thisCheckup.segmentNumber;      % original segment index (for colour/style)
+    segmentIndices = thisCheckup.segmentIndices;
+    segmentVoltage = thisCheckup.voltage_vec;
+    segmentTime    = selectedTime(segmentIndices);
+
     if mod(i, 5) == 0 || i == 1
         fprintf('%d/%d ', i, length(segments));
     end
-    % Select line style for this iteration
+    % Select line style for this iteration (unchanged age-based cycling).
     lineIdx = mod(i-1, length(lineStyles)) + 1;
     currentLineStyle = lineStyles{lineIdx};
-    
-    segmentIndices = segments{i};
-    segmentVoltage = selectedVoltage(segmentIndices);
-    segmentCurrent = selectedCurrent(segmentIndices);
-    segmentTime = selectedTime(segmentIndices);
-    segmentTimeS = selectedTimeS(segmentIndices);
-    segmentTimeS = segmentTimeS - segmentTimeS(1);  % Normalize to start at 0
-    segmentFEC = FullEquivalentCycles(segmentIndices);
 
-    % Only process complete discharge cycles (ending below 2.76V)
-    if segmentVoltage(end) < 2.76 && segmentVoltage(1) > 4.1
-        % Plot discharge capacity vs voltage
-        subplot(3,1,1)
-        hold on;
-        SegmentCapacity_Ah{ValidSegCount} = -cumtrapz(segmentTimeS, segmentCurrent)/3600;
-        plot(SegmentCapacity_Ah{ValidSegCount}, segmentVoltage, ...
-             'LineStyle', currentLineStyle, 'LineWidth', 1.5, ...
-             'Color', [i/length(segments), 0, 1-i/length(segments)]);
-        xlabel('Discharge Capacity [Ah]');
-        ylabel('Voltage [V]');
-        
-        % Plot differential capacity (dQ/dV) vs voltage
-        subplot(3,1,2)
-        hold on;
-        % Calculate smoothed dQ/dV
-        smoothCurrent = movmean(segmentCurrent, windowSize);
-        smoothVoltage = movmean(segmentVoltage, windowSize);
-        dQdV_AperVs{ValidSegCount} = movmean(gradient(cumtrapz(segmentTimeS, smoothCurrent)) ./ ...
-                       gradient(smoothVoltage), windowSize);
-        plot(segmentVoltage, dQdV_AperVs{ValidSegCount}, ...
-             'LineStyle', currentLineStyle, 'LineWidth', 1.5, ...
-             'Color', [i/length(segments), 0, 1-i/length(segments)]);
-        xlabel('Cell Voltage [V]');
-        ylabel('dQ/dV');
-        pause(0.01)
-    
-        % Store capacity and timestamp for trending
-        checkupCapacity_AhTimeStamp(i) = segmentTime(1);
-        checkupCapacity_Ah(i) = -min(cumtrapz(segmentTimeS, segmentCurrent)/3600);
-        checkupCapacityFEC(i) = segmentFEC(1);
-        
-           % Compute SoC vector: starts at 100% and decreases during discharge
-           soc_raw = 100 + (cumtrapz(segmentTimeS, segmentCurrent)/3600) / checkupCapacity_Ah(i) * 100;
+    % Plot discharge capacity vs voltage (curve computed by the shared helper).
+    subplot(3,1,1)
+    hold on;
+    SegmentCapacity_Ah{validSegCount} = thisCheckup.capacity_Ah_vec;
+    plot(SegmentCapacity_Ah{validSegCount}, segmentVoltage, ...
+         'LineStyle', currentLineStyle, 'LineWidth', 1.5, ...
+         'Color', [i/length(segments), 0, 1-i/length(segments)]);
+    xlabel('Discharge Capacity [Ah]');
+    ylabel('Voltage [V]');
 
-           % Interpolate SoC and OCV to 100 points
-           soc_vec = linspace(100, min(soc_raw), 100);
-           [sorted_soc, sort_idx] = sort(soc_raw, 'descend');
-           sorted_voltage = segmentVoltage(sort_idx);
-           [unique_soc, unique_idx] = unique(sorted_soc, 'stable');
-           unique_voltage = sorted_voltage(unique_idx);
-           CheckUpSoC{ValidSegCount} = soc_vec;
-           CheckUpOCV_V{ValidSegCount} = interp1(unique_soc, unique_voltage, soc_vec, 'linear', 'extrap');
-        
-        % Plot SoC vs Voltage
-           subplot(3,1,3)
-           hold on;
-           plot(CheckUpSoC{ValidSegCount}, CheckUpOCV_V{ValidSegCount}, ...
-               'LineStyle', currentLineStyle, 'LineWidth', 1.5, ...
-               'Color', [i/length(segments), 0, 1-i/length(segments)]);
-           xlabel('State of Charge [%]');
-           ylabel('OCV [V]');
-        CheckedDate = segmentTime(1);
-        CheckedDate.Format = 'yy-MM-dd''T''HH:mm';
-        legends = {legends{:} [' ' char(CheckedDate)]};
-        ValidSegCount = ValidSegCount+1;
-    end
+    % Plot differential capacity (dQ/dV) vs voltage (curve from shared helper).
+    subplot(3,1,2)
+    hold on;
+    dQdV_AperVs{validSegCount} = thisCheckup.dQdV_vec;
+    plot(segmentVoltage, dQdV_AperVs{validSegCount}, ...
+         'LineStyle', currentLineStyle, 'LineWidth', 1.5, ...
+         'Color', [i/length(segments), 0, 1-i/length(segments)]);
+    xlabel('Cell Voltage [V]');
+    ylabel('dQ/dV');
+    pause(0.01)
+
+    % Store capacity and timestamp for trending (dense, age-ordered).
+    checkupCapacity_AhTimeStamp(validSegCount) = thisCheckup.timeStamp;
+    checkupCapacity_Ah(validSegCount) = thisCheckup.capacity_Ah;
+    checkupCapacityFEC(validSegCount) = FullEquivalentCycles(segmentIndices(1));
+
+    % Compute SoC vector: starts at 100% and decreases during discharge.
+    % Recompute the signed capacity integral locally (matches the previous
+    % implementation exactly) to drive the SoC axis.
+    segCurrent = selectedCurrent(segmentIndices);
+    segTimeS   = selectedTimeS(segmentIndices); segTimeS = segTimeS - segTimeS(1);
+    soc_raw = 100 + (cumtrapz(segTimeS, segCurrent)/3600) / thisCheckup.capacity_Ah * 100;
+
+    % Interpolate SoC and OCV to 100 points
+    soc_vec = linspace(100, min(soc_raw), 100);
+    [sorted_soc, sort_idx] = sort(soc_raw, 'descend');
+    sorted_voltage = segmentVoltage(sort_idx);
+    [unique_soc, unique_idx] = unique(sorted_soc, 'stable');
+    unique_voltage = sorted_voltage(unique_idx);
+    CheckUpSoC{validSegCount} = soc_vec;
+    CheckUpOCV_V{validSegCount} = interp1(unique_soc, unique_voltage, soc_vec, 'linear', 'extrap');
+
+    % Plot SoC vs Voltage
+    subplot(3,1,3)
+    hold on;
+    plot(CheckUpSoC{validSegCount}, CheckUpOCV_V{validSegCount}, ...
+        'LineStyle', currentLineStyle, 'LineWidth', 1.5, ...
+        'Color', [i/length(segments), 0, 1-i/length(segments)]);
+    xlabel('State of Charge [%]');
+    ylabel('OCV [V]');
+    CheckedDate = segmentTime(1);
+    CheckedDate.Format = 'yy-MM-dd''T''HH:mm';
+    legends = {legends{:} [' ' char(CheckedDate)]};
 end
 
 if isempty(checkupCapacity_AhTimeStamp)
@@ -140,11 +145,15 @@ hold off;
 fprintf('\nCheckup capacity analysis complete. (Elapsed: %.2f s)\n', toc);
 
 
-% Remove NaT entries from output arrays
-validIdx = ~isnat(checkupCapacity_AhTimeStamp);
-checkupCapacity_AhTimeStamp = checkupCapacity_AhTimeStamp(validIdx);
-checkupCapacity_Ah = checkupCapacity_Ah(validIdx);
-checkupCapacityFEC = checkupCapacityFEC(validIdx);
+% Remove NaT entries from output arrays. Guard with isdatetime so the
+% no-valid-checkup path (where the timestamp was replaced by the numeric
+% sentinel 0 above) does not call isnat on a double.
+if isdatetime(checkupCapacity_AhTimeStamp)
+    validIdx = ~isnat(checkupCapacity_AhTimeStamp);
+    checkupCapacity_AhTimeStamp = checkupCapacity_AhTimeStamp(validIdx);
+    checkupCapacity_Ah = checkupCapacity_Ah(validIdx);
+    checkupCapacityFEC = checkupCapacityFEC(validIdx);
+end
 
 
 end

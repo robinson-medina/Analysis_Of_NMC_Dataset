@@ -1,20 +1,41 @@
 % Summary: Extract OCP-like lookup lines from GITT datasets for anode/cathode,
-% then scale/interpolate and export each profile to CSV. Anode data is sourced
-% from one combined anode CSV file containing both modes.
-% Author: Copilot
-% Date: 2026-03-19
+% then scale/interpolate and merge each half-cell GITT profile with its slow
+% charge/discharge curve into a single publication figure per electrode. Anode
+% data is sourced from one combined anode CSV file containing both modes.
+%
+% Usage:   Set the 'AnodeCSV' and 'CathodeCSV' paths below (and the active-
+%          material masses massAnode_g / massCathode_g) and run the script
+%          (no arguments).
+%
+% Produces: Vector figures 'Anode.pdf' and 'Cathode.pdf' plus per-figure PNG
+%           snapshots in ../pngs (R-022). No .fig/.mat files are written.
+%
 % Inputs: CSV files containing time, current, and voltage columns; cathode from MAT files
 % Outputs: Combined anode and cathode tables with mode, capacity, and voltage columns
+% Author: Copilot
+% Date: 2026-03-19   (created)
+% Last documented: 2026-08-04
 
 % Reset workspace and figures for a clean run of the first section.
 clear; close all; clc;
 fprintf('--- extractOCPLines started ---\n');
 
+%% ===================================================================
+% ACTIVE MATERIAL MASSES [g] - used to convert the slow charge/discharge
+% CSVs' specific-capacity column (mAh/g) to an absolute mAh throughput axis.
+% ====================================================================
+massCathode_g = 0.03553;
+massAnode_g   = 0.01668;
+
 %% Anode - Delithiation profile
 % Load anode data from CSV file and filter for positive current (charging/delithiation).
-fprintf('[1/8] Anode delithiation: loading data...\n');
-AnodeCSV = '\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\OCP_data\Anode_Graphite\NEXTMBS-full-charge-discharge-GITT-full0charge-discharge-NMC-anode.csv';
-CathodeCSV = '\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\OCP_data\Cathode_NMC532\NEXTMBS-full-charge-discharge-GITT-full0charge-discharge-NMC-cathode.csv';
+fprintf('[1/10] Anode delithiation: loading data...\n');
+% DataRoot: single switch to the dataset root holding 1_Teardown/2_HalfCell/
+% 3_Characterization/4_Ageing. Change this one line to retarget the script.
+DataRoot = '\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot';
+ocpRoot  = fullfile(DataRoot, '2_HalfCell', 'OCP_data');
+AnodeCSV = fullfile(ocpRoot, 'Anode_Graphite', 'NEXTMBS-full-charge-discharge-GITT-full0charge-discharge-NMC-anode.csv');
+CathodeCSV = fullfile(ocpRoot, 'Cathode_NMC532', 'NEXTMBS-full-charge-discharge-GITT-full0charge-discharge-NMC-cathode.csv');
 
 % Read the anode CSV file; extract columns needed for processing.
 T_anode_raw = readtable(AnodeCSV);
@@ -33,28 +54,26 @@ voltage = T_anode_raw.Voltage(idx_delith);
 % Detect current-step transitions (positive change marks pulse boundaries).
 index = find(diff(current) > 1e-6);
 index = index(1:end-1); %removing the last point
-% Quick diagnostic plots to verify detected step indices.
-figure;
-axCurrent = subplot(2,1,1);
+% Combined diagnostics figure: figs 1-4 merged into one 2x2 tiled layout.
+figAnodeDiagnostics = figure('Name', 'Anode GITT Detection Diagnostics', 'Color', 'w', 'Position', [530 332 1324 839]);
+tAnodeDiag = tiledlayout(figAnodeDiagnostics, 2, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
+nexttile(tAnodeDiag, 1);
+yyaxis left
 hCurrent = plot(time, current);
 hold on; hCurrentSteps = scatter(time(index), current(index));
-title('Anode Delithiation: Current Trace with Detected Steps')
-xlabel('Time (s)')
 ylabel('Current (A)')
-legend([hCurrent, hCurrentSteps], {'Current', 'Detected step indices'}, 'Location', 'best')
-axVoltage = subplot(2,1,2);
+yyaxis right
 hVoltage = plot(time, voltage);
-hold on; hVoltageSteps = scatter(time(index), voltage(index));
-title('Anode Delithiation: Voltage Trace with Detected Steps')
-xlabel('Time (s)')
+scatter(time(index), voltage(index));
 ylabel('Voltage (V)')
-legend([hVoltage, hVoltageSteps], {'Voltage', 'Detected step indices'}, 'Location', 'best')
-% Keep subplot panning/zoom synchronized along the time axis.
-linkaxes([axCurrent, axVoltage], 'x')
+title('Anode Delithiation: Detected Steps')
+xlabel('Time (s)')
+legend([hCurrent, hVoltage, hCurrentSteps], {'Current', 'Voltage', 'Detected step indices'}, 'Location', 'best')
 
 
 % Integrate current from the selected pulse onward to obtain throughput.
-throughput = cumtrapz(time(index(3):index(end)+50), current(index(3):index(end)+50));
+% Divide by 3600 to convert from A·s to Ah (TestTime is in seconds).
+throughput = cumtrapz(time(index(3):index(end)+50), current(index(3):index(end)+50)) / 3600;
 % Preserve the delithiation capacity-axis reference for later comparison plots.
 throughput_anode_del = throughput;
 % Preserve the matching full delithiation voltage segment for overlay plots.
@@ -66,28 +85,28 @@ Q = throughput([index(3:end) - index(3) + 1; numel(throughput)]);
 % Final capacity/voltage vectors for this profile.
 V = voltage([index(3:end); index(end)+50]);
 
-% Compare unscaled boundary points against full integrated trajectory.
-figure;
+% Preserve the delithiation boundary points so the publication figure (fig 6)
+% can overlay circular markers on the GITT voltage line (as in fig 4).
+Q_anode_del = Q;   % capacity at each pulse boundary [Ah]
+V_anode_del = V;   % voltage at each pulse boundary [V]
+
+% Compare unscaled boundary points against full integrated trajectory (tile 2 of 4).
+nexttile(tAnodeDiag, 2);
 hQBefore = plot(Q, V, 'o-');
 hold on
 hThroughput = plot(throughput, voltage_full_anode_del);
-% Compute interpolation to a uniform 0.2 Ah grid for downstream model use.
-% Use explicit min/max and append qMax when needed, because colon stepping can
-% miss the exact endpoint due to floating-point step accumulation.
-dQ = 0.2;
+% Compute interpolation to a 100-point uniform grid between min and max Q.
+% Using linspace avoids the colon-step endpoint issue and works at any scale.
+nInterpPoints = 100;
 qMin = min(Q);
 qMax = max(Q);
-Qsave = qMin:dQ:qMax;
-if isempty(Qsave) || Qsave(end) < qMax
-	Qsave = [Qsave, qMax];
-end
-Qsave = unique(Qsave, 'stable');
+Qsave = linspace(qMin, qMax, nInterpPoints);
 Vsave = interp1(Q, V, Qsave, 'pchip');
 hInterp = plot(Qsave, Vsave);
 title('Anode Delithiation: Boundary Points vs Full Throughput Curve')
-xlabel('Capacity / Throughput (Ah)')
-ylabel('Voltage (V)')
-legend([hQBefore, hThroughput, hInterp], {'Boundary points', 'Full throughput trajectory', 'Profile interpolated with 0.2Ah grid'}, 'Location', 'best')
+xlabel('Capacity / Throughput [Ah]')
+ylabel('Voltage [V]')
+legend([hQBefore, hThroughput, hInterp], {'Boundary points', 'Full throughput trajectory', 'Interpolated profile (100 pts)'}, 'Location', 'best')
 
 % Store the interpolated delithiation profile for the combined anode table.
 Qsave_anode_delith = Qsave(:);
@@ -95,7 +114,7 @@ Vsave_anode_delith = Vsave(:);
 fprintf('  Done. %d interpolated points, Q range [%.1f, %.1f] Ah\n', numel(Qsave_anode_delith), min(Qsave_anode_delith), max(Qsave_anode_delith));
 
 %% Anode - Lithiation profile
-fprintf('[2/8] Anode lithiation: filtering data...\n');
+fprintf('[2/10] Anode lithiation: filtering data...\n');
 % Reuse the loaded combined anode table for lithiation (negative current, discharging).
 % Close figures but retain variables for this phase.
 % AnodeCSV = 'NEXTBMS-GITT-for-discharge_graphite-anode-Akzhan B..csv';
@@ -114,27 +133,23 @@ voltage = T_anode_raw.Voltage(idx_lith);
 index = find(diff(current) < -1e-6);
 index = index(2:end); % remove the first index
 
-% Diagnostic plots of current/voltage with detected transition markers.
-figure;
-axCurrent = subplot(2,1,1);
+% Combined diagnostic (tile 3 of 4 in figAnodeDiagnostics).
+nexttile(tAnodeDiag, 3);
+yyaxis left
 hCurrent = plot(time, current);
 hold on; hCurrentSteps = scatter(time(index), current(index));
-title('Anode Lithiation: Current Trace with Detected Steps')
-xlabel('Time (s)')
 ylabel('Current (A)')
-legend([hCurrent, hCurrentSteps], {'Current', 'Detected step indices'}, 'Location', 'best')
-axVoltage = subplot(2,1,2);
+yyaxis right
 hVoltage = plot(time, voltage);
-hold on; hVoltageSteps = scatter(time(index), voltage(index));
-title('Anode Lithiation: Voltage Trace with Detected Steps')
-xlabel('Time (s)')
+scatter(time(index), voltage(index));
 ylabel('Voltage (V)')
-legend([hVoltage, hVoltageSteps], {'Voltage', 'Detected step indices'}, 'Location', 'best')
-% Keep subplot panning/zoom synchronized along the time axis.
-linkaxes([axCurrent, axVoltage], 'x')
+title('Anode Lithiation: Detected Steps')
+xlabel('Time (s)')
+legend([hCurrent, hVoltage, hCurrentSteps], {'Current', 'Voltage', 'Detected step indices'}, 'Location', 'best')
 
 % Integrate current to compute throughput over the selected interval.
-throughput = cumtrapz(time(index(1):end), abs(current(index(1):end)));
+% Divide by 3600 to convert from A·s to Ah (TestTime is in seconds).
+throughput = cumtrapz(time(index(1):end), abs(current(index(1):end))) / 3600;
 % Preserve the lithiation capacity-axis reference for later comparison plots.
 throughput_anode_lith = throughput;
 % Preserve the matching full lithiation voltage segment for overlay plots.
@@ -146,65 +161,93 @@ Q = throughput([index(1:end) - index(1) + 1; numel(throughput)]);
 % Create capacity-voltage lookup vectors.
 V = voltage([index(1:end); numel(voltage)]);
 
-% Plot reduced points against full throughput curve for sanity checking.
-figure;
+% Preserve the lithiation boundary points so the publication figure (fig 6)
+% can overlay circular markers on the GITT voltage line (as in fig 4).
+Q_anode_lith = Q;   % capacity at each pulse boundary [Ah]
+V_anode_lith = V;   % voltage at each pulse boundary [V]
+
+% Plot reduced points against full throughput curve for sanity checking (tile 4 of 4).
+nexttile(tAnodeDiag, 4);
 hQBefore = plot(Q, V, 'o-');
 hold on
 hThroughput = plot(throughput, voltage_full_anode_lith);
-% Compute interpolation to a uniform 0.2 Ah grid for downstream model use.
-% Use explicit min/max and append qMax when needed, because colon stepping can
-% miss the exact endpoint due to floating-point step accumulation.
-dQ = 0.2;
+% Compute interpolation to a 100-point uniform grid between min and max Q.
+nInterpPoints = 100;
 qMin = min(Q);
 qMax = max(Q);
-Qsave = qMin:dQ:qMax;
-if isempty(Qsave) || Qsave(end) < qMax
-	Qsave = [Qsave, qMax];
-end
-Qsave = unique(Qsave, 'stable');
+Qsave = linspace(qMin, qMax, nInterpPoints);
 Vsave = interp1(Q, V, Qsave, 'pchip');
 hInterp = plot(Qsave, Vsave);
 title('Anode Lithiation: Boundary Points vs Full Throughput Curve')
-xlabel('Capacity / Throughput (Ah)')
-ylabel('Voltage (V)')
-legend([hQBefore, hThroughput, hInterp], {'Boundary points', 'Full throughput trajectory', 'Profile interpolated with 0.2Ah grid'}, 'Location', 'best')
+xlabel('Capacity / Throughput [Ah]')
+ylabel('Voltage [V]')
+legend([hQBefore, hThroughput, hInterp], {'Boundary points', 'Full throughput trajectory', 'Interpolated profile (100 pts)'}, 'Location', 'best')
 
 % Combine delithiation and lithiation into one anode table for export/use.
 Qsave_anode_lith = Qsave(:);
 Vsave_anode_lith = Vsave(:);
 fprintf('  Done. %d interpolated points, Q range [%.1f, %.1f] Ah\n', numel(Qsave_anode_lith), min(Qsave_anode_lith), max(Qsave_anode_lith));
 
-%% Compare the interpolated anode lithiation and delithiation profiles directly.
-fprintf('[3/8] Anode: plotting comparison figure...\n');
-figure;
-hAnodeDelith = plot(Qsave_anode_delith, Vsave_anode_delith, 'LineWidth', 1.5);
-hold on
-hAnodeLith = plot(flip(Qsave_anode_lith), Vsave_anode_lith, 'LineWidth', 1.5);
-title('Anode Interpolated Lithiation vs Delithiation Profiles')
-xlabel('Capacity (Ah)')
-ylabel('Voltage (V)')
-legend([hAnodeDelith, hAnodeLith], {'Delithiation', 'Lithiation'}, 'Location', 'best')
-
 %% Compare the interpolated anode lithiation and delithiation for publication
-fprintf('[3/8] Anode: plotting comparison figure...\n');
-% Compute the normalisation factor: maximum capacity across both profiles.
-Qmax_anode = max([max(Qsave_anode_delith); max(Qsave_anode_lith)]);
-figure;
-% Divide all capacity axes by Qmax_anode so x-axis represents SoC (0–1).
-hAnodeDelith = plot(Qsave_anode_delith / Qmax_anode, Vsave_anode_delith, 'r','LineWidth', 1.5);
+fprintf('[3/10] Anode: plotting publication figure...\n');
+% Scale both publication dimensions together so the tight-cropped Anode PDF
+% reaches the R-021 single-column target without changing its aspect ratio.
+pubFigWidthCm = 8.65;
+pubFigHeightCm = 6.39;
+pubFontSizePt = 8;
+colDarkBlue = [1 17 181] ./ 255;
+colRed = [255 0 0] ./ 255;
+colBlack = [0 0 0];
+% R-017 preferred palette extension color, used to give the anode/cathode
+% Slow delithiation line a distinct colour instead of sharing red with GITT.
+colGreen = [12 195 82] ./ 255;
+figAnodePub = figure('Color', 'w', 'Units', 'centimeters', 'Position', [2 2 pubFigWidthCm pubFigHeightCm]);
+figAnodePub.PaperPositionMode = 'auto';
+% GITT voltage segments only (interpolated Delithiation/Lithiation lines removed);
+% x-axis converted from Ah to mAh (x1000); dashed to distinguish from the
+% solid slow charge/discharge lines overlaid later on this same figure.
+% Thinner LineWidth tightens MATLAB's dash/gap pattern (which scales with
+% LineWidth) so dashes sit closer together instead of leaving wide gaps.
+plot(throughput_anode_del  * 1000, voltage_full_anode_del,  '--', 'Color', colRed,   'LineWidth', 0.6);
 hold on
-hAnodeLith = plot(Qsave_anode_lith / Qmax_anode, Vsave_anode_lith, 'k', 'LineWidth', 1.5);
-% Overlay the same full voltage segments with their throughput axes normalised
-% by the same Qmax so all traces share the same SoC x-axis.
-hVoltageFullDel = plot(throughput_anode_del / Qmax_anode, voltage_full_anode_del, 'b--', 'LineWidth', 1.1);
-hVoltageFullLith = plot(throughput_anode_lith / Qmax_anode, voltage_full_anode_lith, 'b--', 'LineWidth', 1.1);
-title('Anode Interpolated Lithiation vs Delithiation Profiles')
-xlabel('SoC (-)')
-ylabel('Voltage (V)')
-legend([hAnodeDelith, hAnodeLith, hVoltageFullDel, hVoltageFullLith], {'Delithiation', 'Lithiation', 'GITT voltage'}, 'Location', 'best')
+plot(throughput_anode_lith * 1000, voltage_full_anode_lith, '--', 'Color', colBlack, 'LineWidth', 0.6);
+% Overlay open circular markers at each GITT pulse boundary on the voltage line
+% (same boundary-point style as figs 4 and 10). Markers only (no connecting
+% line) so the dashed GITT trace stays intact; coloured to match their own
+% GITT line (red=delithiation, black=lithiation) rather than a third colour.
+plot(Q_anode_del  * 1000, V_anode_del,  'o', 'Color', colRed, 'MarkerSize', 1.5, 'LineStyle', 'none');
+plot(Q_anode_lith * 1000, V_anode_lith, 'o', 'Color', colBlack, 'MarkerSize', 1.5, 'LineStyle', 'none');
+% Build legend-only proxy handles so the GITT entries show the combined style:
+% dashed line plus relaxation marker. The real relaxation markers remain on
+% the plotted data, but they are no longer separate legend entries.
+hLegGittDelAnode = plot(nan, nan, '--o', 'Color', colRed, 'LineWidth', 0.6, ...
+	'MarkerSize', 3, 'MarkerFaceColor', 'none');
+hLegGittLithAnode = plot(nan, nan, '--o', 'Color', colBlack, 'LineWidth', 0.6, ...
+	'MarkerSize', 3, 'MarkerFaceColor', 'none');
+xlabel('Throughput [mAh]', 'FontName', 'Times New Roman', 'FontSize', pubFontSizePt)
+ylabel('Voltage [V]', 'FontName', 'Times New Roman', 'FontSize', pubFontSizePt)
+grid on
+box on
+axAnodePub = gca;
+axAnodePub.FontName = 'Times New Roman';
+axAnodePub.FontSize = pubFontSizePt;
+axAnodePub.LabelFontSizeMultiplier = 1.0;
+axAnodePub.TitleFontSizeMultiplier = 1.0;
+axAnodePub.LineWidth = 0.8;
+legend([hLegGittDelAnode, hLegGittLithAnode], {'GITT delithiation', 'GITT lithiation'}, ...
+	'Location', 'north', 'Box', 'off', 'FontName', 'Times New Roman', 'FontSize', pubFontSizePt)
+
+% NOTE: export moved to the end of the slow charge/discharge section below,
+% once the anode slow curves have been overlaid onto this same figure.
+scriptDir = fileparts(mfilename('fullpath'));
+saveDir   = fullfile(scriptDir, '..', 'pngs');
+if ~exist(saveDir, 'dir'); mkdir(saveDir); end
 
 %%
-% Store normalised SoC (capacity divided by Qmax_anode) in place of raw Ah values.
+% Store normalised SoC (capacity divided by Qmax_anode) in the exported table.
+% Qmax_anode is computed here (not in the publication figure) because the
+% publication figure uses raw Ah on the x-axis.
+Qmax_anode = max([max(Qsave_anode_delith); max(Qsave_anode_lith)]);
 T_anode = table( ...
 	[repmat("Delithiation", numel(Qsave_anode_delith), 1); repmat("Lithiation", numel(Qsave_anode_lith), 1)], ...
 	[Qsave_anode_delith / Qmax_anode; Qsave_anode_lith / Qmax_anode], ...
@@ -213,7 +256,7 @@ T_anode = table( ...
 
 % Write the combined anode table to CSV when export is needed.
 % writetable(T_anode, 'GITT_anode_combined.csv');
-fprintf('[4/8] Cathode delithiation: loading data...\n');
+fprintf('[4/10] Cathode delithiation: loading data...\n');
 
 %% Cathode - Delithiation profile (with upper-range extrapolation)
 % Keep workspace data for continuity; only load new source vectors.
@@ -229,27 +272,25 @@ voltage = T_cathode_raw.Voltage(idx_cathode_delith);
 index = find(diff(current) > 1e-6);
 index = index(2:end); % remove the first index
 
-% Diagnostic plot: pulse boundaries over current and voltage traces.
-figure;
-axCurrent = subplot(2,1,1);
+% Combined diagnostics figure: figs 7-10 merged into one 2x2 tiled layout.
+figCathodeDiagnostics = figure('Name', 'Cathode GITT Detection Diagnostics', 'Color', 'w', 'Position', [530 332 1324 839]);
+tCathodeDiag = tiledlayout(figCathodeDiagnostics, 2, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
+nexttile(tCathodeDiag, 1);
+yyaxis left
 hCurrent = plot(time, current);
 hold on; hCurrentSteps = scatter(time(index), current(index));
-title('Cathode Delithiation: Current Trace with Detected Steps')
-xlabel('Time (s)')
 ylabel('Current (A)')
-legend([hCurrent, hCurrentSteps], {'Current', 'Detected step indices'}, 'Location', 'best')
-axVoltage = subplot(2,1,2);
+yyaxis right
 hVoltage = plot(time, voltage);
-hold on; hVoltageSteps = scatter(time(index), voltage(index));
-title('Cathode Delithiation: Voltage Trace with Detected Steps')
-xlabel('Time (s)')
+scatter(time(index), voltage(index));
 ylabel('Voltage (V)')
-legend([hVoltage, hVoltageSteps], {'Voltage', 'Detected step indices'}, 'Location', 'best')
-% Keep subplot panning/zoom synchronized along the time axis.
-linkaxes([axCurrent, axVoltage], 'x')
+title('Cathode Delithiation: Detected Steps')
+xlabel('Time (s)')
+legend([hCurrent, hVoltage, hCurrentSteps], {'Current', 'Voltage', 'Detected step indices'}, 'Location', 'best')
 
 % Integrate current to form throughput and then reduce to boundary points.
-throughput = cumtrapz(time(index(2):index(end)+50), current(index(2):index(end)+50));
+% Divide by 3600 to convert from A·s to Ah (TestTime is in seconds).
+throughput = cumtrapz(time(index(2):index(end)+50), current(index(2):index(end)+50)) / 3600;
 % Preserve the delithiation capacity-axis reference for later comparison plots.
 throughput_cathode_del = throughput;
 % Preserve the matching full delithiation voltage segment for overlay plots.
@@ -259,29 +300,27 @@ Q = throughput([index(2:end) - index(2) + 1; numel(throughput)]);
 % Capacity-voltage profile.
 V = voltage([index(2:end); index(end)+50]);
 
-% Visual check of reduced profile vs. full integrated trajectory.
-figure;
+% Preserve the delithiation boundary points so the publication figure (fig 12)
+% can overlay circular markers on the GITT voltage line (as in fig 10).
+Q_cathode_del = Q;   % capacity at each pulse boundary [Ah]
+V_cathode_del = V;   % voltage at each pulse boundary [V]
+
+% Visual check of reduced profile vs. full integrated trajectory (tile 2 of 4).
+nexttile(tCathodeDiag, 2);
 hQBefore = plot(Q, V, 'o-');
 hold on
 hThroughput = plot(throughput, voltage_full_cathode_del);
-% Compute interpolation and extrapolation to 108% of max capacity range.
-% Use explicit min/max and append qMax when needed, because colon stepping can
-% miss the exact endpoint due to floating-point step accumulation.
-dQ = 0.2;
+% Compute interpolation to a 100-point uniform grid between min and max Q.
+nInterpPoints = 100;
 qMin = min(Q);
-% qMax = max(Q) * 1.08;
 qMax = max(Q);
-Qsave = qMin:dQ:qMax;
-if isempty(Qsave) || Qsave(end) < qMax
-	Qsave = [Qsave, qMax];
-end
-Qsave = unique(Qsave, 'stable');
+Qsave = linspace(qMin, qMax, nInterpPoints);
 Vsave = interp1(Q, V, Qsave, 'pchip');
 hInterp = plot(Qsave, Vsave);
 title('Cathode Delithiation: Boundary Points vs Full Throughput Curve')
-xlabel('Capacity / Throughput (Ah)')
-ylabel('Voltage (V)')
-legend([hQBefore, hThroughput, hInterp], {'Boundary points', 'Full throughput trajectory', 'Profile interpolated + extrapolated with 0.2Ah grid'}, 'Location', 'best')
+xlabel('Capacity / Throughput [Ah]')
+ylabel('Voltage [V]')
+legend([hQBefore, hThroughput, hInterp], {'Boundary points', 'Full throughput trajectory', 'Interpolated profile (100 pts)'}, 'Location', 'best')
 
 % Store the interpolated delithiation profile for the combined cathode table.
 Qsave_cathode_delith = Qsave(:);
@@ -289,7 +328,7 @@ Vsave_cathode_delith = Vsave(:);
 fprintf('  Done. %d interpolated points, Q range [%.1f, %.1f] Ah\n', numel(Qsave_cathode_delith), min(Qsave_cathode_delith), max(Qsave_cathode_delith));
 
 %% Cathode - Lithiation profile (with lower-range extrapolation)
-fprintf('[5/8] Cathode lithiation: filtering data...\n');
+fprintf('[5/10] Cathode lithiation: filtering data...\n');
 % Keep workspace data for continuity; only load new source vectors.
 % clear; close all
 idx_cathode_lith = T_cathode_raw.Current <= 0;
@@ -301,27 +340,23 @@ voltage = T_cathode_raw.Voltage(idx_cathode_lith);
 index = find(diff(current) < -1e-6);
 index = index(2:end); % remove first and last indices
 
-% Diagnostic plot of transitions in current and voltage.
-figure;
-axCurrent = subplot(2,1,1);
+% Combined diagnostic (tile 3 of 4 in figCathodeDiagnostics).
+nexttile(tCathodeDiag, 3);
+yyaxis left
 hCurrent = plot(time, current);
 hold on; hCurrentSteps = scatter(time(index), current(index));
-title('Cathode Lithiation: Current Trace with Detected Steps')
-xlabel('Time (s)')
 ylabel('Current (A)')
-legend([hCurrent, hCurrentSteps], {'Current', 'Detected step indices'}, 'Location', 'best')
-axVoltage = subplot(2,1,2);
+yyaxis right
 hVoltage = plot(time, voltage);
-hold on; hVoltageSteps = scatter(time(index), voltage(index));
-title('Cathode Lithiation: Voltage Trace with Detected Steps')
-xlabel('Time (s)')
+scatter(time(index), voltage(index));
 ylabel('Voltage (V)')
-legend([hVoltage, hVoltageSteps], {'Voltage', 'Detected step indices'}, 'Location', 'best')
-% Keep subplot panning/zoom synchronized along the time axis.
-linkaxes([axCurrent, axVoltage], 'x')
+title('Cathode Lithiation: Detected Steps')
+xlabel('Time (s)')
+legend([hCurrent, hVoltage, hCurrentSteps], {'Current', 'Voltage', 'Detected step indices'}, 'Location', 'best')
 
 % Integrate current and sample at detected boundaries.
-throughput = cumtrapz(time(index(1):end), abs(current(index(1):end)));
+% Divide by 3600 to convert from A·s to Ah (TestTime is in seconds).
+throughput = cumtrapz(time(index(1):end), abs(current(index(1):end))) / 3600;
 % Preserve the lithiation capacity-axis reference for later comparison plots.
 
 % Preserve the matching full lithiation voltage segment for overlay plots.
@@ -330,6 +365,11 @@ Q = throughput([index(1:end) - index(1) + 1; numel(throughput)]);
 
 % Construct profile capacity-voltage vectors.
 V = voltage([index(1:end); numel(voltage)]);
+
+% Preserve the lithiation boundary points so the publication figure (fig 12)
+% can overlay circular markers on the GITT voltage line (as in fig 10).
+Q_cathode_lith = Q;   % capacity at each pulse boundary [Ah]
+V_cathode_lith = V;   % voltage at each pulse boundary [V]
 
 
 % Compute interpolation across an extended lower capacity range (6% offset).
@@ -345,15 +385,11 @@ V = voltage([index(1:end); numel(voltage)]);
 % qMin = min(Q_extrapolated);
 % qMax = max(Q_extrapolated);
 
-dQ = 0.2;
+nInterpPoints = 100;
 qMin = min(Q);
 qMax = max(Q);
-Qsave = qMin:dQ:qMax;
-if isempty(Qsave) || Qsave(end) < qMax
-	Qsave = [Qsave, qMax];
-end
-Qsave = unique(Qsave, 'stable');
-Vsave = interp1(Q,  V, Qsave, 'pchip');
+Qsave = linspace(qMin, qMax, nInterpPoints);
+Vsave = interp1(Q, V, Qsave, 'pchip');
 
 
 
@@ -366,7 +402,7 @@ Vsave = interp1(Q,  V, Qsave, 'pchip');
 % throughput = throughput+ExtraCapaicty; %correct for the extrapolation
 
 throughput_cathode_lith = throughput;
-figure;
+nexttile(tCathodeDiag, 4);
 hQBefore = plot(Q, V, 'o-');
 hold on
 hThroughput = plot(throughput, voltage_full_cathode_lith);
@@ -381,34 +417,41 @@ Qsave_cathode_lith = Qsave(:);
 Vsave_cathode_lith = Vsave(:);
 fprintf('  Done. %d interpolated points, Q range [%.1f, %.1f] Ah\n', numel(Qsave_cathode_lith), min(Qsave_cathode_lith), max(Qsave_cathode_lith));
 
-%% Compare the interpolated cathode lithiation and delithiation profiles directly.
-fprintf('[6/8] Cathode: plotting comparison figure...\n');
-figure;
-hCathodeDelith = plot(Qsave_cathode_delith, Vsave_cathode_delith, 'LineWidth', 1.5);
-hold on
-hCathodeLith = plot(flip(Qsave_cathode_lith), Vsave_cathode_lith, 'LineWidth', 1.5);
-title('Cathode Interpolated Lithiation vs Delithiation Profiles')
-xlabel('Capacity (Ah)')
-ylabel('Voltage (V)')
-legend([hCathodeDelith, hCathodeLith], {'Delithiation', 'Lithiation'}, 'Location', 'best')
-
 %% Compare the interpolated cathode lithiation and delithiation for publication
-fprintf('[6b/8] Cathode: plotting publication figure...\n');
+fprintf('[6/10] Cathode: plotting publication figure...\n');
 % Compute the normalisation factor: maximum capacity across both profiles.
 Qmax_cathode = max([max(Qsave_cathode_delith); max(Qsave_cathode_lith)]);
-figure;
-% Divide all capacity axes by Qmax_cathode so x-axis represents SoC (0-1).
-hCathodeDelith = plot(Qsave_cathode_delith / Qmax_cathode, Vsave_cathode_delith, 'k','LineWidth', 1.5);
+figCathodePub = figure('Color', 'w', 'Units', 'centimeters', 'Position', [2 2 pubFigWidthCm pubFigHeightCm]);
+figCathodePub.PaperPositionMode = 'auto';
+% GITT voltage segments only (interpolated Delithiation/Lithiation lines removed);
+% x-axis converted from Ah to mAh (x1000); dashed to distinguish from the
+% solid slow charge/discharge lines overlaid later on this same figure.
+% Thinner LineWidth tightens MATLAB's dash/gap pattern (which scales with
+% LineWidth) so dashes sit closer together instead of leaving wide gaps.
+hVoltageFullDel = plot(throughput_cathode_del  * 1000, voltage_full_cathode_del,  '--', 'Color', colRed,   'LineWidth', 0.6);
 hold on
-hCathodeLith = plot(Qsave_cathode_lith / Qmax_cathode, Vsave_cathode_lith, 'LineWidth', 1.5);
-% Overlay the full voltage segments with their throughput axes normalised
-% by the same Qmax so all traces share the same SoC x-axis.
-hVoltageFullDel = plot(throughput_cathode_del / Qmax_cathode, voltage_full_cathode_del, 'b--', 'LineWidth', 1.1);
-hVoltageFullLith = plot(throughput_cathode_lith / Qmax_cathode, voltage_full_cathode_lith, 'b--', 'LineWidth', 1.1);
-title('Cathode Interpolated Lithiation vs Delithiation Profiles')
-xlabel('SoC (-)')
-ylabel('Voltage (V)')
-legend([hCathodeDelith, hCathodeLith, hVoltageFullDel, hVoltageFullLith], {'Lithiation', 'Delithiation', 'GITT voltage'}, 'Location', 'best')
+hVoltageFullLith = plot(throughput_cathode_lith * 1000, voltage_full_cathode_lith, '--', 'Color', colBlack, 'LineWidth', 0.6);
+% Overlay open circular markers at each GITT pulse boundary on the voltage line
+% (same boundary-point style as figs 4 and 10). Markers only (no connecting
+% line) so the dashed GITT trace stays intact; coloured to match their own
+% GITT line (red=delithiation, black=lithiation) rather than a third colour.
+hRelaxDel = plot(Q_cathode_del  * 1000, V_cathode_del,  'o', 'Color', colRed, 'MarkerSize', 1.5, 'LineStyle', 'none');
+hRelaxLith = plot(Q_cathode_lith * 1000, V_cathode_lith, 'o', 'Color', colBlack, 'MarkerSize', 1.5, 'LineStyle', 'none');
+grid on
+box on
+axCathodePub = gca;
+axCathodePub.FontName = 'Times New Roman';
+axCathodePub.FontSize = pubFontSizePt;
+axCathodePub.LabelFontSizeMultiplier = 1.0;
+axCathodePub.TitleFontSizeMultiplier = 1.0;
+axCathodePub.LineWidth = 0.8;
+xlabel(axCathodePub, 'Throughput [mAh]', 'FontName', 'Times New Roman', 'FontSize', pubFontSizePt)
+ylabel(axCathodePub, 'Voltage [V]', 'FontName', 'Times New Roman', 'FontSize', pubFontSizePt)
+legend([hVoltageFullDel, hVoltageFullLith, hRelaxDel, hRelaxLith], {'GITT delithiation', 'GITT lithiation', 'Relaxation delithiation', 'Relaxation lithiation'}, ...
+	'Location', 'south', 'Box', 'off', 'FontName', 'Times New Roman', 'FontSize', pubFontSizePt)
+
+% NOTE: export moved to the end of the slow charge/discharge section below,
+% once the cathode slow curves have been overlaid onto this same figure.
 
 %%
 % Store normalised SoC (capacity divided by Qmax_cathode) in place of raw Ah values.
@@ -420,11 +463,82 @@ T_cathode = table( ...
 
 % Write the combined cathode table to CSV when export is needed.
 % writetable(T_cathode, 'GITT_cathode_combined.csv');
-fprintf('[7/8] Combined tables built: T_anode (%d rows), T_cathode (%d rows)\n', height(T_anode), height(T_cathode));
+fprintf('[7/10] Combined tables built: T_anode (%d rows), T_cathode (%d rows)\n', height(T_anode), height(T_cathode));
+
+%% Slow charge/discharge OCP curves (anode and cathode)
+% Two additional publication figures from the slow (near-OCP) full charge and
+% discharge sweeps supplied as simple Capacity(mAh/g),Voltage(V) CSVs. One line
+% per direction (charge in red, discharge in black) on a Throughput [mAh] axis.
+fprintf('[8/10] Slow charge/discharge: building anode and cathode figures...\n');
+
+% Resolve the four CSV paths relative to the existing anode/cathode source files.
+anodeChargeCSV      = fullfile(fileparts(AnodeCSV),   'anode_NExtBMS_fCharge.csv');
+anodeDischargeCSV   = fullfile(fileparts(AnodeCSV),   'anode_NExtBMS_fDischarge.csv');
+cathodeChargeCSV    = fullfile(fileparts(CathodeCSV), 'cathode_NExtBMS_fCharge.csv');
+cathodeDischargeCSV = fullfile(fileparts(CathodeCSV), 'cathode_NExtBMS_fDischarge.csv');
+
+% Read as tables; preserve headers so columns are accessed positionally (col 1 =
+% Capacity(mAh/g), col 2 = Voltage(V)) without name mangling of the parenthesised headers.
+T_anodeCharge      = readtable(anodeChargeCSV,      'VariableNamingRule', 'preserve');
+T_anodeDischarge   = readtable(anodeDischargeCSV,   'VariableNamingRule', 'preserve');
+T_cathodeCharge    = readtable(cathodeChargeCSV,    'VariableNamingRule', 'preserve');
+T_cathodeDischarge = readtable(cathodeDischargeCSV, 'VariableNamingRule', 'preserve');
+
+% --- Anode: overlay slow charge/discharge onto the combined GITT figure (fig 6) ---
+% Combines figs 6 and 13 into a single plot: fig 6's dashed GITT lines plus
+% these solid slow charge/discharge lines, sharing the same mAh axis.
+figure(figAnodePub);
+hold on
+% Column 1 is specific capacity [mAh/g]; multiply by active mass [g] for mAh.
+% Distinct colours (R-017 palette) from the GITT lines above, so the two
+% delithiation/lithiation datasets never share a colour on this figure.
+hAnodeCharge    = plot(T_anodeCharge{:,1}    * massAnode_g, T_anodeCharge{:,2},    '-', 'Color', colGreen,   'LineWidth', 1.5);
+hAnodeDischarge = plot(T_anodeDischarge{:,1} * massAnode_g, T_anodeDischarge{:,2}, '-', 'Color', colDarkBlue, 'LineWidth', 1.5);
+% Draw order requirement: continuous lines behind dashed lines, markers on top.
+% These solid lines were added last, so push them to the bottom of the stack.
+uistack(hAnodeDischarge, 'bottom');
+uistack(hAnodeCharge, 'bottom');
+% Keep relaxation markers on the data, but fold the marker cue into the GITT
+% legend samples so the legend has no standalone "Relaxation" entries.
+legend([hLegGittDelAnode, hLegGittLithAnode, hAnodeCharge, hAnodeDischarge], ...
+	{'GITT delithiation', 'GITT lithiation', 'Slow delithiation', 'Slow lithiation'}, ...
+	'Location', 'north', 'Box', 'off', 'FontName', 'Times New Roman', 'FontSize', pubFontSizePt)
+
+% Export the combined figure (single Anode.pdf now covers figs 6+13).
+drawnow;
+pdfFileAnode = fullfile(saveDir, 'Anode.pdf');
+exportgraphics(figAnodePub, pdfFileAnode, 'ContentType', 'vector');
+fprintf('Anode publication PDF saved: %s\n', pdfFileAnode);
+
+% --- Cathode: overlay slow charge/discharge onto the combined GITT figure (fig 12) ---
+% Combines figs 12 and 14 into a single plot: fig 12's dashed GITT lines plus
+% these solid slow charge/discharge lines, sharing the same mAh axis.
+figure(figCathodePub);
+hold on
+% Column 1 is specific capacity [mAh/g]; multiply by active mass [g] for mAh.
+% Distinct colours (R-017 palette) from the GITT lines above, so the two
+% delithiation/lithiation datasets never share a colour on this figure.
+hCathodeCharge    = plot(T_cathodeCharge{:,1}    * massCathode_g, T_cathodeCharge{:,2},    '-', 'Color', colGreen,   'LineWidth', 1.5);
+hCathodeDischarge = plot(T_cathodeDischarge{:,1} * massCathode_g, T_cathodeDischarge{:,2}, '-', 'Color', colDarkBlue, 'LineWidth', 1.5);
+% Draw order requirement: continuous lines behind dashed lines, markers on top.
+% These solid lines were added last, so push them to the bottom of the stack.
+uistack(hCathodeDischarge, 'bottom');
+uistack(hCathodeCharge, 'bottom');
+legend([hVoltageFullDel, hVoltageFullLith, hRelaxDel, hRelaxLith, hCathodeCharge, hCathodeDischarge], ...
+	{'GITT delithiation', 'GITT lithiation', 'Relaxation delithiation', 'Relaxation lithiation', 'Slow delithiation', 'Slow lithiation'}, ...
+	'Location', 'south', 'Box', 'off', 'FontName', 'Times New Roman', 'FontSize', pubFontSizePt)
+
+% Export the combined figure (single Cathode.pdf now covers figs 12+14).
+drawnow;
+pdfFileCathode = fullfile(saveDir, 'Cathode.pdf');
+exportgraphics(figCathodePub, pdfFileCathode, 'ContentType', 'vector');
+fprintf('Cathode publication PDF saved: %s\n', pdfFileCathode);
 
 %% Save all open figures to PNG
-fprintf('[8/8] Saving figures to pngs/ folder...\n');
-pngDir = fullfile(pwd, 'pngs');
+fprintf('[9/10] Saving figures to pngs/ folder...\n');
+% Use mfilename so the output folder is always relative to this script,
+% not to the MATLAB current working directory.
+pngDir = fullfile(fileparts(mfilename('fullpath')), '..', 'pngs');
 if ~exist(pngDir, 'dir')
 	mkdir(pngDir);
 end
@@ -450,4 +564,4 @@ for k = 1:numel(figHandles)
 	exportgraphics(fig, outFile, 'Resolution', 150);
 	fprintf('  Saved: %s\n', outFile);
 end
-fprintf('[9/9] --- extractOCPLines complete ---\n');
+fprintf('[10/10] --- extractOCPLines complete ---\n');

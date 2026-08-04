@@ -96,8 +96,12 @@ def main():
     print('='*40)
     
     # Configuration
-    # Folder containing the characterization data files
-    data_folder = r'\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\Characterization_data'
+    # DataRoot: single switch to the dataset root holding 1_Teardown/2_HalfCell/
+    # 3_Characterization/4_Ageing.
+    data_root = r'\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot'
+    # Folder containing the characterization data files (per-cell folders live
+    # directly under 3_Characterization in the reorganised dataset).
+    data_folder = os.path.join(data_root, '3_Characterization')
     
     # Get all subfolders in the directory
     print(f'Scanning main folder: {data_folder}')

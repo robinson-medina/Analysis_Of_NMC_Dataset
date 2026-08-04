@@ -77,8 +77,11 @@ def main():
         print('Stopping execution because required helper modules are not available in this workspace.')
         return
     
-    # Configuration: set default folder to Cyclic_ageing_data (can be changed as needed)
-    desired_folder = r'\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\Cyclic_ageing_data'
+    # DataRoot: single switch to the dataset root that holds the four top-level
+    # folders (1_Teardown, 2_HalfCell, 3_Characterization, 4_Ageing).
+    data_root = r'\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot'
+    # Default to the cyclic ageing data under 4_Ageing (can be changed as needed).
+    desired_folder = os.path.join(data_root, '4_Ageing', 'Cyclic_ageing_data')
 
     # MATLAB parity: when cell_num is set, process only that cell.
     cell_num = 'A2.02_Cell_56'

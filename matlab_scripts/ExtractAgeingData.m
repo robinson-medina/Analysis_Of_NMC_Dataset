@@ -1,10 +1,23 @@
-%% Battery Test Data Analysis and Visualization
-% This script loads battery cell test data, processes time gaps, calculates
-% cumulative charge capacity, and performs various diagnostic analyses including
-% checkup capacity measurements, resistance calculations, and dV/dt analysis.
+%% Battery Test Data Analysis and Visualization (ExtractAgeingData.m)
+% Summary: Main per-cell ageing pipeline. Loads battery cell test data,
+% reconstructs and processes time gaps, calculates cumulative charge capacity,
+% and performs diagnostic analyses including checkup capacity measurements,
+% 30 s DC-pulse resistance, dV/dt (Li-stripping) analysis and the Reference
+% Performance Cycle figure. It also accumulates the cross-cell overview tables.
+%
+% Usage:   See the Instructions block below (run over all cells, or a single
+%          cell by setting 'cellNum').
+%
+% Produces: Per-cell diagnostic figures (PNG + vector PDF in ../pngs, R-022) and
+% the cross-cell CSV tables 'OverviewResistanceData_<N>cell.csv' /
+% 'OverviewCapacityData_<N>cell.csv' (consumed by the overview plotters).
+%
+% Inputs:  cyclic/calendar ageing CSVs under DesiredFolder.
+% Outputs: figures in ../pngs and Overview*Data_*.csv next to the data.
 %
 % Author: Feye Hoekstra, Róbinson Medina 
-% Updated: November 25, 2025
+% Updated: 2025-11-25
+% Last documented: 2026-08-04
 %% Instructions
 % 1a To run the script in all cells, update the variable 'DesiredFolder' with the path to the all the cyclic
 % or calendar ageing experiments
@@ -15,7 +28,9 @@
 clear;
 % close all;
 clc;
-addpath("..\Functions\")
+% Resolve Functions path relative to this script so it works from any cwd.
+scriptDir = fileparts(mfilename('fullpath'));
+addpath(fullfile(scriptDir, '..', '..', 'Functions'))
 
 
 %% Configuration
@@ -23,11 +38,12 @@ DesiredFolder = '\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\C
 % DesiredFolder = '\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\Calendar_ageing_data';
 Folders = dir([DesiredFolder '\*_Cell_*']);
 % cellNum = 'A3.13_Cell_17';
-% cellNum = 'A3.11_Cell_8'; % ligth A3 file
+ % cellNum = 'A3.11_Cell_8'; % ligth A3 file
 % cellNum = 'A3.12_Cell_47';
-cellNum = 'A2.08_Cell_35'; % light A2 file
-cellNum = 'A2.02_Cell_56'; % light A2 file
+ cellNum = 'A2.08_Cell_35'; % light A2 file
+% cellNum = 'A2.02_Cell_56'; % light A2 file
 % cellNum = 'A2.07_Cell_34';
+cellNum = 'A1.05_Cell_68';
 
 % Load processed battery test data from .mat file
 
@@ -59,57 +75,30 @@ allDQdVData = {};celNumIndx=1;
     tic;  % Restart timer
 
 
-    opts = detectImportOptions(loadName);
-    opts.VariableTypes{1}='string';
-    opts.DataLines = [2 Inf];
-    opts.VariableNamesLine = 1;
     fprintf('Loading %s \n',cellNum)
     tic;  % Start timer
-    TableData = readtable(loadName,opts);
 
-
-    fprintf('Data loaded successfully. (Elapsed: %.2f s)\n', toc);
-    % TableData = readTableFromHDF5_Compressed('sorted_data_v73.h5');
-
-
-    %% reconstruct time vector
-    timeYYMMDDstr = TableData.Time;
-    timeYYMMDD = NaT(size(timeYYMMDDstr));
-    timeYYMMDD(1) = datetime(timeYYMMDDstr(1), 'Format','dd-MMM-yyyy HH:mm:ss.SSS');
-    Increase_s = cumsum(seconds(double(timeYYMMDDstr(2:end))));
-    timeYYMMDD(2:end) = Increase_s+timeYYMMDD(1);
-
-    % take the other varibales
-    voltageV = TableData.Voltage_V_;
-    currentA = TableData.Current_A_;
-    cellTempC = TableData.CellTemp__C_;
-    chamberTempC = TableData.ChamberTemp__C_;
-    dwellTimeS = seconds(timeYYMMDD-timeYYMMDD(1));
-
-    clear TableData timeYYMMDDstr Increase_s; % releases memory
-    fprintf('Data extraction complete. (Elapsed: %.2f s)\n', toc);
-
-    %% Extract Data from Structure
-    % Extract time-series data from the loaded structure
-    % fprintf('Extracting data from structure...\n');
-
-    %% Insert NaN Values at Data Gaps
-    % Insert NaN values where time gaps exceed 1 minute to prevent continuous
-    % lines in plots across discontinuous data segments
-    [timeWithGaps, timeS, voltage, current, cellTemp, chamberTemp] = insertNaNAtGaps(timeYYMMDD, dwellTimeS, voltageV, currentA, cellTempC, chamberTempC);
-
-    % Clear original arrays to free memory
-    clear timeYYMMDD dwellTimeS voltageV currentA cellTempC chamberTempC;
-
-    %% Compute Cumulative Charge Integral
-    % Calculate the cumulative charge (capacity) by integrating current over time
-    % Process each continuous segment separately (split by NaN gaps)
-    cumulative_integral = computeCumulativeCharge(timeS, current);
+    %% Load + preprocess via shared helper (single source of the ingestion pipeline)
+    % loadAndPreprocessAgeingCsv performs the readtable + time-vector
+    % reconstruction + NaN-gap insertion + cumulative-charge integral that is
+    % shared with PlotCellSummary.m, so the ingestion code lives in one place.
+    [timeWithGaps, timeS, voltage, current, cellTemp, chamberTemp, cumulative_integral] = ...
+        loadAndPreprocessAgeingCsv(loadName);
+    fprintf('Data loaded and preprocessed. (Elapsed: %.2f s)\n', toc);
 
     %% Plot Overview Data
     % Create a multi-panel plot showing current, voltage, temperature, and capacity
     plotOverviewData(timeWithGaps, current, voltage, cellTemp, chamberTemp, cumulative_integral, cellNum, cellLabel);
     figOverview = gcf;
+
+    % %% Extract Reference Performance Cycle (RPC) only valid for cell A1.05_Cell_68
+    % % Define the publication zoom window for the Reference Performance Cycle view
+    % referenceCycleStartTime = datetime(2024, 4, 23, 5, 51, 16);
+    % referenceCycleEndTime = datetime(2024, 4, 30, 04, 55, 12);
+ 
+    % % Plot publication-formatted overview data restricted to the selected time window
+    % plotReferencePerformanceCycle(timeWithGaps, current, voltage, cellTemp, chamberTemp, cumulative_integral, cellNum, cellLabel, referenceCycleStartTime, referenceCycleEndTime);
+    % figReferencePerformanceCycle = gcf;
 
 
     %% Checkup Capacity Analysis
@@ -170,11 +159,16 @@ allDQdVData = {};celNumIndx=1;
         delete(FileToDelete);
     end
     fprintf('\nSaving figures...\n');
-    saveas(figOverview, fullfile(savePath, [cellNum '_Overview.png']));
-    saveas(figCheckupDischarge, fullfile(savePath, [cellNum '_CheckupDischarge.png']));
-    saveas(figResistance, fullfile(savePath, [cellNum '_Resistance.png']));
-    saveas(figCapResTrend, fullfile(savePath, [cellNum '_CapacityResistanceTrend.png']));
-    saveas(figDVdt, fullfile(savePath, [cellNum '_dVdtAnalysis.png']));
+    % Save all figures to JournalScripts/pngs/ so they are co-located with
+    % the other journal publication figures rather than in the data folders.
+    scriptDir_ext = fileparts(mfilename('fullpath'));
+    journalPngsDir = fullfile(scriptDir_ext, '..', 'pngs');
+    if ~exist(journalPngsDir, 'dir'); mkdir(journalPngsDir); end
+    saveas(figOverview,        fullfile(journalPngsDir, [cellNum '_Overview.png']));
+    saveas(figCheckupDischarge,fullfile(journalPngsDir, [cellNum '_CheckupDischarge.png']));
+    saveas(figResistance,      fullfile(journalPngsDir, [cellNum '_Resistance.png']));
+    saveas(figCapResTrend,     fullfile(journalPngsDir, [cellNum '_CapacityResistanceTrend.png']));
+    saveas(figDVdt,            fullfile(journalPngsDir, [cellNum '_dVdtAnalysis.png']));
 
 
     fprintf('\n========================================\n');

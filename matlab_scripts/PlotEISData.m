@@ -1,10 +1,17 @@
 %% Nyquist Analysis Script
-% This script loads impedance data from CSV files and generates Nyquist diagrams
-% for different State of Charge (SoC) conditions.
+% Summary: Loads impedance data from the CSV files in an EIS folder and
+% generates Nyquist diagrams for the different State of Charge (SoC) conditions
+% contained in each '*_impedanceData.csv'.
 %
+% Usage:   Update the variable 'eisFolder' with the path to the EIS experiments
+%          and run the script (no arguments).
+%
+% Produces: Nyquist diagram figures; any saved image/vector outputs are written
+%           to ../pngs (R-022).
 %
 % Author: Robinson Medina
-% Date: January 22, 2026
+% Date: 2026-01-22   (created)
+% Last documented: 2026-08-04
 
 %% Instructions
 % update the variable 'eisFolder' with the path to the EIS experiments
@@ -12,10 +19,19 @@
 clear;
 close all;
 clc;
-addpath("..\Functions\")
-addpath('Functions')
+% Resolve the current script folder so path setup is independent of cwd.
+scriptDir = fileparts(mfilename('fullpath'));
+% Build the absolute path to the shared Functions folder from this script location.
+functionsDir = fullfile(scriptDir, '..', '..', 'Functions');
+% Add Functions only when the folder exists to avoid path warnings.
+if exist(functionsDir, 'dir')
+    addpath(functionsDir)
+end
 %% Configuration
-eisFolder = '\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\EIS_data\3_EOL_EIS';
+% DataRoot: single switch to the dataset root holding 1_Teardown/2_HalfCell/
+% 3_Characterization/4_Ageing. Change this one line to retarget the script.
+DataRoot  = '\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot';
+eisFolder = fullfile(DataRoot, '4_Ageing', 'EIS_data', '3_EOL_EIS');
 
 
 

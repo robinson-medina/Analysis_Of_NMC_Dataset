@@ -33,7 +33,11 @@ from pathlib import Path
 import re
 
 # Set input/output folder
-io_folder = Path(r"\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\Cyclic_ageing_data")
+# DataRoot: single switch to the dataset root holding 1_Teardown/2_HalfCell/
+# 3_Characterization/4_Ageing. The Overview*Data_*.csv tables live inside the
+# ageing data folders under 4_Ageing.
+DATA_ROOT = Path(r"\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot")
+io_folder = DATA_ROOT / "4_Ageing" / "Cyclic_ageing_data"
 input_csv = io_folder / 'OverviewCapacityData_36cell.csv'
 ageing_test_plan_path = Path(__file__).with_name("ageing_test_plan.md")
 
