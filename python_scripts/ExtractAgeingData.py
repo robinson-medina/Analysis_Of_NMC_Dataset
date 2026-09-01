@@ -20,8 +20,9 @@ import os
 from pathlib import Path
 
 # Add functions directory to path (check both locations)
-# Original location: one folder up
-functions_dir_parent = Path(__file__).parent.parent / 'Functions'
+# Original location: Functions/ lives at BatteryTestHardware_ChromaAgeing/Functions,
+# i.e. one level above JournalScripts (sibling of JournalScripts), not inside it.
+functions_dir_parent = Path(__file__).parent.parent.parent / 'Functions'
 # New location: same folder as script
 functions_dir_local = Path(__file__).parent / 'Functions'
 
@@ -33,8 +34,7 @@ def load_helpers() -> dict[str, callable]:
             sys.path.append(str(functions_dir))
 
     required_helpers = {
-        "insertNaNAtGaps": "insert_nan_at_gaps",
-        "computeCumulativeCharge": "compute_cumulative_charge",
+        "loadAndPreprocessAgeingCsv": "load_and_preprocess_ageing_csv",
         "plotOverviewData": "plot_overview_data",
         "findCheckupSegments": "find_checkup_segments",
         "analyzeCheckupDischarge": "analyze_checkup_discharge",
@@ -76,20 +76,27 @@ def main():
     if not helpers:
         print('Stopping execution because required helper modules are not available in this workspace.')
         return
+
+    # Import after load_helpers() has registered the shared Functions directory.
+    # The resolver assigns this entry script its isolated R-022 output folder.
+    from get_figure_output_dir import get_figure_output_dir
     
     # DataRoot: single switch to the dataset root that holds the four top-level
     # folders (1_Teardown, 2_HalfCell, 3_Characterization, 4_Ageing).
     data_root = r'\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot'
     # Default to the cyclic ageing data under 4_Ageing (can be changed as needed).
     desired_folder = os.path.join(data_root, '4_Ageing', 'Cyclic_ageing_data')
+    # Wave 8 override: a runner can target one cell/folder via env vars
+    # (subprocess-per-cell parity with RunWave8.m's folderOverride/cellNumOverride).
+    desired_folder = os.environ.get('WAVE8_FOLDER', desired_folder)
 
     # MATLAB parity: when cell_num is set, process only that cell.
-    cell_num = 'A2.02_Cell_56'
+    cell_num = os.environ.get('WAVE8_CELL', 'Cell_35')
 
-    # Get all folders in the directory matching *_Cell_*
+    # Get all folders in the directory matching Cell_* (R-025 plain form)
     all_folders = [
         f for f in os.listdir(desired_folder)
-        if os.path.isdir(os.path.join(desired_folder, f)) and '_Cell_' in f
+        if os.path.isdir(os.path.join(desired_folder, f)) and f.startswith('Cell_')
     ]
     if cell_num:
         if cell_num not in all_folders:
@@ -119,67 +126,25 @@ def main():
         load_name = os.path.join(desired_folder, cell_num, f'{cell_num}.csv')
         print(f'Loading data for cell: {cell_num}...')
 
-        # Extract save path for figures from load_name
-        save_path = os.path.dirname(load_name)
+        # Keep figures and derived CSVs out of the read-only ZenodoRoot tree (R-001).
+        # Resolve the isolated R-022 folder once per entry-script workflow, so cleanup
+        # cannot remove outputs belonging to MATLAB or another Python writer.
+        save_path = str(get_figure_output_dir('ExtractAgeingData'))
         print(f'Figures will be saved to: {save_path}')
 
         start_time = time.time()
 
         try:
-            # Load data with specific options to match MATLAB behavior
+            # Load + preprocess via the shared helper (single source of the
+            # ingestion pipeline, matching Functions/loadAndPreprocessAgeingCsv.m
+            # used by the MATLAB driver): readtable-equivalent CSV load, time-
+            # vector reconstruction, NaN-gap insertion, cumulative-charge
+            # integral. Todo #020 (2026-08-24): replaces the previously
+            # inlined preamble so both drivers share one implementation.
             print(f'Loading {cell_num}')
-
-            # Read CSV with first column as string (time column)
-            df = pd.read_csv(load_name, dtype={0: str}, header=0)
-
-            print(f'Data loaded successfully. (Elapsed: {time.time() - start_time:.2f} s)')
-
-            # Reconstruct time vector
-            time_yy_mm_dd_str = df.iloc[:, 0].values  # First column is time
-            time_yy_mm_dd = pd.Series([pd.NaT] * len(time_yy_mm_dd_str), dtype='datetime64[ns]')
-
-            # Parse first timestamp
-            time_yy_mm_dd.iloc[0] = pd.to_datetime(time_yy_mm_dd_str[0], format='%d-%b-%Y %H:%M:%S.%f')
-
-            # Convert subsequent values to cumulative seconds and add to base time
-            increase_s = None
-            if len(time_yy_mm_dd_str) > 1:
-                increase_s = np.cumsum(pd.to_numeric(time_yy_mm_dd_str[1:], errors='coerce'))
-                time_yy_mm_dd.iloc[1:] = time_yy_mm_dd.iloc[0] + pd.to_timedelta(increase_s, unit='s')
-
-            # Extract other variables - using column names to match MATLAB behavior
-            try:
-                # MATLAB readtable sanitizes column names by replacing symbols with underscores.
-                voltage_v = df['Voltage_V_'].values
-                current_a = df['Current_A_'].values
-                cell_temp_c = df['CellTemp__C_'].values
-                chamber_temp_c = df['ChamberTemp__C_'].values
-            except KeyError:
-                # Fallback to positional indexing if unsanitized headers are present.
-                voltage_v = df.iloc[:, 1].values
-                current_a = df.iloc[:, 2].values
-                cell_temp_c = df.iloc[:, 3].values
-                chamber_temp_c = df.iloc[:, 4].values
-
-            dwell_time_s = (time_yy_mm_dd - time_yy_mm_dd.iloc[0]).dt.total_seconds().values
-
-            # Clear memory
-            del df, time_yy_mm_dd_str
-            if increase_s is not None:
-                del increase_s
-            print(f'Data extraction complete. (Elapsed: {time.time() - start_time:.2f} s)')
-
-            # Insert NaN Values at Data Gaps
-            (time_with_gaps, time_s, voltage, current, 
-                 cell_temp, chamber_temp) = helpers['insert_nan_at_gaps'](
-                time_yy_mm_dd, dwell_time_s, voltage_v, current_a, 
-                cell_temp_c, chamber_temp_c)
-
-            # Clear original arrays to free memory
-            del time_yy_mm_dd, dwell_time_s, voltage_v, current_a, cell_temp_c, chamber_temp_c
-
-            # Compute Cumulative Charge Integral
-            cumulative_integral = helpers['compute_cumulative_charge'](time_s, current)
+            (time_with_gaps, time_s, voltage, current, cell_temp, chamber_temp,
+             cumulative_integral) = helpers['load_and_preprocess_ageing_csv'](load_name)
+            print(f'Data loaded and preprocessed. (Elapsed: {time.time() - start_time:.2f} s)')
 
             # Plot Overview Data
             helpers['plot_overview_data'](
@@ -273,15 +238,10 @@ def main():
                 selected_time_s, constant_current_value_a, cell_num, cell_label)
             fig_dvdt = plt.gcf()
 
-            # MATLAB parity: delete old PNG files immediately before saving new figures.
-            for fname in os.listdir(save_path):
-                if fname.endswith('.png'):
-                    try:
-                        os.remove(os.path.join(save_path, fname))
-                    except Exception as e:
-                        print(f'Could not delete {fname}: {e}')
-
-            # Save All Figures
+            # Save All Figures. Do NOT blanket-delete PNGs here: this folder is a
+            # shared per-script owner (Figures/python/ExtractAgeingData) holding every
+            # cell's images, and the Wave 8 runner clears it once before the first run.
+            # Matching ExtractAgeingData.m, each cell only writes its own {cell}_*.png.
             print('\nSaving figures...')
             figures = [
                 (fig_overview, f'{cell_num}_Overview.png'),
@@ -330,22 +290,22 @@ def main():
 
     n_cells = len(folders)
 
-    # Create and save Resistance table
+    # Create and save the resistance table in this script's R-022 output directory.
     if all_resistance_data:
         resistance_df = pd.DataFrame(all_resistance_data, columns=['CellNum', 'CellLabel', 'CheckupResistanceTimeStamp', 'CheckupResistance_Ohm', 'CheckupResistanceFEC'])
-        resistance_path = os.path.join(desired_folder, f'OverviewResistanceData_{n_cells}cell.csv')
+        resistance_path = os.path.join(save_path, f'OverviewResistanceData_{n_cells}cell.csv')
         resistance_df.to_csv(resistance_path, index=False)
         print(f'Resistance data saved to: {resistance_path}')
 
-    # Create and save Capacity table
+    # Create and save the capacity table in this script's R-022 output directory.
     if all_capacity_data:
         capacity_df = pd.DataFrame(all_capacity_data, columns=['CellNum', 'CellLabel', 'CheckupCapacityTimeStamp', 'CheckupCapacity_Ah', 'CheckupCapacityFEC'])
-        capacity_path = os.path.join(desired_folder, f'OverviewCapacityData_{n_cells}cell.csv')
+        capacity_path = os.path.join(save_path, f'OverviewCapacityData_{n_cells}cell.csv')
         capacity_df.to_csv(capacity_path, index=False)
         print(f'Capacity data saved to: {capacity_path}')
 
     print('\n' + '='*40)
-    print(f'All tables saved to: {desired_folder}')
+    print(f'All tables saved to: {save_path}')
     print('='*40)
 
     # Keep figures open for interactive viewing

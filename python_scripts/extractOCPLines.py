@@ -1,31 +1,56 @@
 """
-Summary: Extract OCP-like lookup lines from anode and cathode GITT datasets,
-build interpolated profiles, and save the diagnostic figures to pngs/.
+Summary: Extract OCP-like lookup lines from GITT datasets for anode/cathode,
+then scale/interpolate and merge each half-cell GITT profile with its slow
+charge/discharge curve into one two-panel publication figure: panel (a) is
+the graphite anode, panel (b) the NMC532 cathode (R-024). Anode data is
+sourced from one combined anode CSV file containing both modes.
+
+Python counterpart of matlab_scripts/extractOCPLines.m (todo #022). Ported
+2026-08-25 to match the CURRENT MATLAB source (single combined
+`OCP_HalfCell.pdf` two-panel figure), which supersedes the older separate
+`Anode.pdf`/`Cathode.pdf` architecture the previous Python port targeted.
+
+Produces: Vector figure 'OCP_HalfCell.pdf' (+ .png at the same stem) plus
+per-figure PNG snapshots in the script-owned R-022 directory. No .fig/.mat
+files are written.
+
 Author: Copilot
-Date: 2026-04-14
+Date: 2026-08-25
 Inputs/Outputs: Reads anode/cathode CSV files with DateTime, TestTime, Current,
-and Voltage columns; returns combined anode/cathode tables and optionally writes
-combined CSV outputs when requested.
+and Voltage columns, plus 4 slow charge/discharge CSVs; writes the combined
+publication PDF/PNG, per-electrode diagnostic PNGs, and optionally the
+combined anode/cathode SoC-vs-voltage tables to CSV.
 """
 
 from __future__ import annotations
 
 import argparse
 import re
-from dataclasses import dataclass
+import sys
 from pathlib import Path
 from typing import Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.lines import Line2D
 from scipy.integrate import cumulative_trapezoid
 from scipy.interpolate import PchipInterpolator
 
+# Register the shared resolver before importing it from the sibling Functions directory.
+FUNCTIONS_DIR = Path(__file__).resolve().parents[2] / "Functions"
+if str(FUNCTIONS_DIR) not in sys.path:
+    sys.path.append(str(FUNCTIONS_DIR))
+
+from get_figure_output_dir import get_figure_output_dir  # noqa: E402
 
 CURRENT_STEP_THRESHOLD_A = 1e-6
-INTERPOLATION_STEP_AH = 0.2
-BOUNDARY_PADDING_SAMPLES = 50
+INTERPOLATION_POINT_COUNT = 100  # matches MATLAB's linspace(qMin, qMax, 100)
+
+# ACTIVE MATERIAL MASSES [g] - used to convert the slow charge/discharge CSVs'
+# specific-capacity column (mAh/g) to an absolute mAh throughput axis.
+MASS_ANODE_G = 0.01668
+MASS_CATHODE_G = 0.03553
 
 DEFAULT_ANODE_LOCAL = "NEXTMBS-full-charge-discharge-GITT-full0charge-discharge-NMC-anode.csv"
 DEFAULT_CATHODE_LOCAL = "NEXTMBS-full-charge-discharge-GITT-full0charge-discharge-NMC-cathode.csv"
@@ -36,17 +61,18 @@ OCP_ROOT = DATA_ROOT / "2_HalfCell" / "OCP_data"
 DEFAULT_ANODE_NETWORK = OCP_ROOT / "Anode_Graphite" / DEFAULT_ANODE_LOCAL
 DEFAULT_CATHODE_NETWORK = OCP_ROOT / "Cathode_NMC532" / DEFAULT_CATHODE_LOCAL
 
+# R-017 publication palette (RGB 0-1).
+COL_DARK_BLUE = (1 / 255, 17 / 255, 181 / 255)
+COL_RED = (1.0, 0.0, 0.0)
+COL_BLACK = (0.0, 0.0, 0.0)
+COL_GREEN = (12 / 255, 195 / 255, 82 / 255)  # defined for palette parity; unused (matches MATLAB's unused colGreen)
+# Dimmed variants (65% base colour + 35% white) so the GITT traces read as a
+# lighter-intensity overlay behind the solid slow charge/discharge lines.
+COL_RED_LIGHT = tuple(0.65 * np.array(COL_RED) + 0.35 * np.array([1.0, 1.0, 1.0]))
+COL_DARK_BLUE_LIGHT = tuple(0.65 * np.array(COL_DARK_BLUE) + 0.35 * np.array([1.0, 1.0, 1.0]))
 
-@dataclass
-class ProfileResult:
-    """Container for a processed OCP profile."""
-
-    boundary_capacity_ah: np.ndarray
-    boundary_voltage_v: np.ndarray
-    interpolated_capacity_ah: np.ndarray
-    interpolated_voltage_v: np.ndarray
-    throughput_axis_ah: np.ndarray
-    full_voltage_v: np.ndarray
+PUB_FONT = "Times New Roman"
+PUB_FONTSIZE = 8  # R-021 default: paper caption size
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -69,8 +95,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--png-dir",
         type=Path,
-        default=project_root / "pngs",
-        help="Directory where diagnostic PNG figures are written.",
+        default=get_figure_output_dir("extractOCPLines"),
+        help="Directory where diagnostic and publication figures are written.",
     )
     parser.add_argument(
         "--output-dir",
@@ -81,17 +107,12 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--export-csv",
         action="store_true",
-        help="Write combined anode/cathode OCP tables to CSV.",
+        help="Write combined anode/cathode SoC-vs-voltage tables to CSV.",
     )
     parser.add_argument(
         "--no-show-figures",
         action="store_true",
         help="Skip opening figure windows after saving PNG outputs.",
-    )
-    parser.add_argument(
-        "--no-hold-figures",
-        action="store_true",
-        help="Do not keep figure windows open after showing them.",
     )
     return parser.parse_args()
 
@@ -99,91 +120,65 @@ def parse_arguments() -> argparse.Namespace:
 def resolve_input_path(requested_path: Path, fallback_path: Path) -> Path:
     """Resolve a local project path first, then fall back to the original network path."""
 
-    candidate_paths = [requested_path, fallback_path]
-    for candidate_path in candidate_paths:
+    for candidate_path in (requested_path, fallback_path):
         if candidate_path.exists():
             return candidate_path
 
-    expected_paths = "\n".join(f"  - {path}" for path in candidate_paths)
-    raise FileNotFoundError(
-        "Input file not found. Checked the following locations:\n"
-        f"{expected_paths}"
-    )
+    expected_paths = "\n".join(f"  - {path}" for path in (requested_path, fallback_path))
+    raise FileNotFoundError(f"Input file not found. Checked the following locations:\n{expected_paths}")
 
 
-def normalize_column_name(column_name: str) -> str:
-    """Normalize a column header by removing non-alphanumeric chars and lowercasing."""
+def _normalize_column_name(column_name: str) -> str:
+    """Lowercase and strip non-alphanumerics so header variants compare equal."""
 
     return re.sub(r"[^a-z0-9]", "", str(column_name).lower())
 
 
 def load_ocp_table(csv_path: Path) -> pd.DataFrame:
-    """Load and validate a GITT CSV file."""
+    """Load and validate a GITT CSV file (columns: TestTime, Current, Voltage)."""
 
     table = pd.read_csv(csv_path, encoding="utf-8-sig", low_memory=False)
-    original_columns = [str(column_name) for column_name in table.columns]
 
-    # Support both raw export headers (e.g. "Test Time") and MATLAB-style names ("TestTime").
+    # Support both raw export headers (e.g. "Test Time") and MATLAB-style
+    # names ("TestTime") produced by readtable's automatic sanitisation.
     canonical_aliases = {
-        "TestTime": ["TestTime", "Test Time", "testtime", "test_time"],
-        "Current": ["Current", "Current(A)", "I", "current"],
-        "Voltage": ["Voltage", "Voltage(V)", "U", "voltage"],
-        "DateTime": ["DateTime", "Date Time", "date_time", "datetime"],
+        "TestTime": ["TestTime", "Test Time", "test_time"],
+        "Current": ["Current", "Current(A)", "current"],
+        "Voltage": ["Voltage", "Voltage(V)", "voltage"],
     }
-
-    normalized_to_actual = {
-        normalize_column_name(column_name): column_name for column_name in original_columns
-    }
-
-    resolved_columns: dict[str, str] = {}
+    # Keep the FIRST column mapping to each normalized name so a raw export's
+    # "Test Time" (seconds) wins over a derived "TestTime" (hours) duplicate,
+    # matching MATLAB readtable. The throughput integral divides by 3600
+    # assuming SECONDS, so picking the hours column made every GITT throughput
+    # 3600x too small and collapsed the GITT curves to x=0 (#114).
+    normalized_to_actual = {}
+    for actual_column in table.columns:
+        normalized_to_actual.setdefault(_normalize_column_name(actual_column), actual_column)
+    rename_map = {}
     for canonical_name, aliases in canonical_aliases.items():
         for alias in aliases:
-            normalized_alias = normalize_column_name(alias)
-            if normalized_alias in normalized_to_actual:
-                resolved_columns[canonical_name] = normalized_to_actual[normalized_alias]
+            actual = normalized_to_actual.get(_normalize_column_name(alias))
+            if actual is not None:
+                rename_map[actual] = canonical_name
                 break
+    table = table.rename(columns=rename_map)
+    # After the rename both "Test Time" and "TestTime" become "TestTime"; keep
+    # the first (the seconds column) and drop the later hours duplicate (#114).
+    table = table.loc[:, ~table.columns.duplicated(keep="first")]
 
-    rename_map = {
-        source_name: canonical_name
-        for canonical_name, source_name in resolved_columns.items()
-        if source_name != canonical_name
-    }
-    if rename_map:
-        table = table.rename(columns=rename_map)
-
-    required_columns = {"TestTime", "Current", "Voltage"}
-    missing_columns = sorted(required_columns.difference(table.columns))
-    if missing_columns:
-        available_columns = ", ".join(original_columns)
-        raise ValueError(
-            f"{csv_path} is missing required columns: {', '.join(missing_columns)}. "
-            f"Available columns: {available_columns}"
-        )
-
-    if "DateTime" in table.columns:
-        table["DateTime"] = pd.to_datetime(table["DateTime"], errors="coerce")
-
-    for column_name in ["TestTime", "Current", "Voltage"]:
+    for column_name in ("TestTime", "Current", "Voltage"):
+        if column_name not in table.columns:
+            raise ValueError(f"{csv_path} is missing required column '{column_name}'.")
         table[column_name] = pd.to_numeric(table[column_name], errors="coerce")
 
     filtered_table = table.dropna(subset=["TestTime", "Current", "Voltage"]).reset_index(drop=True)
     if filtered_table.empty:
         raise ValueError(f"{csv_path} contains no valid numeric rows after filtering.")
-
     return filtered_table
 
 
-def select_phase(table: pd.DataFrame, current_filter: pd.Series) -> pd.DataFrame:
-    """Filter a raw table to one current-sign phase and reset the index."""
-
-    phase_table = table.loc[current_filter].reset_index(drop=True)
-    if phase_table.empty:
-        raise ValueError("Selected phase is empty after applying the current filter.")
-    return phase_table
-
-
-def detect_transition_indices(current_a: np.ndarray, direction: str) -> np.ndarray:
-    """Detect pulse boundary indices using the same sign logic as the MATLAB script."""
+def find_transition_indices(current_a: np.ndarray, direction: str) -> np.ndarray:
+    """Detect pulse boundary indices (0-based), matching MATLAB's find(diff(current)...)."""
 
     current_diff = np.diff(current_a)
     if direction == "positive":
@@ -195,288 +190,238 @@ def detect_transition_indices(current_a: np.ndarray, direction: str) -> np.ndarr
 
     if transition_indices.size == 0:
         raise ValueError("No current-step transitions were detected in the selected phase.")
-
     return transition_indices
 
 
-def clamp_endpoint(last_index: int, padding_samples: int, signal_length: int) -> int:
-    """Clamp the padded endpoint so array indexing stays within bounds."""
+def process_delithiation_phase(
+    time_s: np.ndarray, current_a: np.ndarray, voltage_v: np.ndarray, idx: np.ndarray, start_offset: int
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Integrate throughput and extract Q/V boundary points for a delithiation
+    (positive-current) GITT phase.
 
-    return min(last_index + padding_samples, signal_length - 1)
+    Mirrors MATLAB's `time(index(k+1):index(end)+50)` windowing, where
+    start_offset = k (e.g. 2 for anode delithiation, 1 for cathode
+    delithiation, using MATLAB's 1-based `index(3)`/`index(2)`).
 
+    Returns (throughput_ah, full_voltage_v, boundary_q_ah, boundary_v).
+    """
 
-def create_step_figure(
-    x_values: np.ndarray | pd.Series,
-    current_a: np.ndarray,
-    voltage_v: np.ndarray,
-    transition_indices: np.ndarray,
-    title_prefix: str,
-    x_label: str,
-) -> None:
-    """Create the two-panel diagnostic figure for current and voltage step detection."""
+    s = idx[start_offset]
+    e = idx[-1] + 50
+    throughput_ah = cumulative_trapezoid(current_a[s:e + 1], time_s[s:e + 1], initial=0.0) / 3600.0
+    full_voltage_v = voltage_v[s:e + 1]
 
-    figure, axes = plt.subplots(2, 1, sharex=True)
-    axes[0].plot(x_values, current_a)
-    axes[0].scatter(np.asarray(x_values)[transition_indices], current_a[transition_indices])
-    axes[0].set_title(f"{title_prefix}: Current Trace with Detected Steps")
-    axes[0].set_xlabel(x_label)
-    axes[0].set_ylabel("Current (A)")
-    axes[0].legend(["Current", "Detected step indices"], loc="best")
-
-    axes[1].plot(x_values, voltage_v)
-    axes[1].scatter(np.asarray(x_values)[transition_indices], voltage_v[transition_indices])
-    axes[1].set_title(f"{title_prefix}: Voltage Trace with Detected Steps")
-    axes[1].set_xlabel(x_label)
-    axes[1].set_ylabel("Voltage (V)")
-    axes[1].legend(["Voltage", "Detected step indices"], loc="best")
-    figure.tight_layout()
+    q_positions = np.concatenate([idx[start_offset:] - s, [len(throughput_ah) - 1]])
+    boundary_q_ah = throughput_ah[q_positions]
+    v_positions = np.concatenate([idx[start_offset:], [idx[-1] + 50]])
+    boundary_v = voltage_v[v_positions]
+    return throughput_ah, full_voltage_v, boundary_q_ah, boundary_v
 
 
-def create_throughput_figure(
-    throughput_axis: np.ndarray,
-    full_voltage_v: np.ndarray,
-    boundary_capacity_axis: np.ndarray,
-    boundary_voltage_v: np.ndarray,
-    interpolated_capacity_ah: np.ndarray,
-    interpolated_voltage_v: np.ndarray,
-    title_prefix: str,
-    interpolation_legend_text: str,
-) -> None:
-    """Create the boundary-vs-trajectory diagnostic figure with interpolation overlay."""
+def process_lithiation_phase(
+    time_s: np.ndarray, current_a: np.ndarray, voltage_v: np.ndarray, idx: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Integrate throughput and extract Q/V boundary points for a lithiation
+    (negative-current) GITT phase, mirroring MATLAB's `time(index(1):end)`
+    windowing on the absolute current.
 
-    plt.figure()
-    plt.plot(boundary_capacity_axis, boundary_voltage_v, "o-")
-    plt.plot(throughput_axis, full_voltage_v)
-    plt.plot(interpolated_capacity_ah, interpolated_voltage_v)
-    plt.title(f"{title_prefix}: Boundary Points vs Full Throughput Curve")
-    plt.xlabel("Capacity / Throughput (Ah)")
-    plt.ylabel("Voltage (V)")
-    plt.legend(["Boundary points", "Full throughput trajectory", interpolation_legend_text], loc="best")
-    plt.tight_layout()
+    Returns (throughput_ah, full_voltage_v, boundary_q_ah, boundary_v).
+    """
 
+    s = idx[0]
+    throughput_ah = cumulative_trapezoid(np.abs(current_a[s:]), time_s[s:], initial=0.0) / 3600.0
+    full_voltage_v = voltage_v[s:]
 
-def create_interpolation_figure(
-    boundary_capacity_ah: np.ndarray,
-    boundary_voltage_v: np.ndarray,
-    interpolated_capacity_ah: np.ndarray,
-    interpolated_voltage_v: np.ndarray,
-    title_prefix: str,
-    legend_text: str,
-) -> None:
-    """Create the scaled-profile and interpolation figure."""
-
-    plt.figure()
-    plt.plot(boundary_capacity_ah, boundary_voltage_v, "o-")
-    plt.plot(interpolated_capacity_ah, interpolated_voltage_v)
-    plt.title(f"{title_prefix}: Scaled and Interpolated OCP Line")
-    plt.xlabel("Capacity (Ah)")
-    plt.ylabel("Voltage (V)")
-    plt.legend(["Profile scaled to half-cell capacity", legend_text], loc="best")
-    plt.tight_layout()
+    q_positions = np.concatenate([idx - s, [len(throughput_ah) - 1]])
+    boundary_q_ah = throughput_ah[q_positions]
+    v_positions = np.concatenate([idx, [len(voltage_v) - 1]])
+    boundary_v = voltage_v[v_positions]
+    return throughput_ah, full_voltage_v, boundary_q_ah, boundary_v
 
 
-def build_interpolated_profile(
-    boundary_capacity_ah: np.ndarray,
-    boundary_voltage_v: np.ndarray,
-    interpolation_start_ah: float,
-    interpolation_stop_ah: float,
-    interpolation_step_ah: float = INTERPOLATION_STEP_AH,
-    shift_output_capacity_ah: float = 0.0,
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Interpolate the reduced profile onto an endpoint-safe regular grid using PCHIP."""
+def interpolate_profile(boundary_q_ah: np.ndarray, boundary_v: np.ndarray,
+                         n_points: int = INTERPOLATION_POINT_COUNT) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    PCHIP-interpolate boundary Q/V points onto n_points evenly spaced over
+    [min(Q), max(Q)], matching MATLAB's `linspace(qMin,qMax,100)` +
+    `interp1(Q,V,Qsave,'pchip')`.
+    """
 
-    if interpolation_stop_ah < interpolation_start_ah:
-        raise ValueError("Interpolation stop must be greater than or equal to interpolation start.")
-
-    # PCHIP requires strictly increasing x; sort and remove duplicate capacities.
-    sort_order = np.argsort(boundary_capacity_ah)
-    sorted_capacity_ah = np.asarray(boundary_capacity_ah)[sort_order]
-    sorted_voltage_v = np.asarray(boundary_voltage_v)[sort_order]
-    unique_capacity_ah, unique_indices = np.unique(sorted_capacity_ah, return_index=True)
-    unique_voltage_v = sorted_voltage_v[unique_indices]
-
-    if unique_capacity_ah.size < 2:
+    order = np.argsort(boundary_q_ah)
+    q_sorted = np.asarray(boundary_q_ah)[order]
+    v_sorted = np.asarray(boundary_v)[order]
+    q_unique, unique_idx = np.unique(q_sorted, return_index=True)
+    v_unique = v_sorted[unique_idx]
+    if q_unique.size < 2:
         raise ValueError("Insufficient unique capacity points for interpolation.")
 
-    # Build the interpolation axis with a fixed step while guaranteeing that the
-    # exact interpolation stop value is included (colon-style stepping can miss
-    # the endpoint because of floating-point accumulation).
-    interpolation_axis = np.arange(interpolation_start_ah, interpolation_stop_ah + interpolation_step_ah, interpolation_step_ah)
-    if interpolation_axis.size == 0 or interpolation_axis[-1] < interpolation_stop_ah:
-        interpolation_axis = np.append(interpolation_axis, interpolation_stop_ah)
-    interpolation_axis = np.unique(interpolation_axis)
-
-    interpolator = PchipInterpolator(unique_capacity_ah, unique_voltage_v, extrapolate=True)
-    interpolated_voltage_v = interpolator(interpolation_axis)
-    return interpolation_axis + shift_output_capacity_ah, interpolated_voltage_v
+    q_save = np.linspace(np.min(boundary_q_ah), np.max(boundary_q_ah), n_points)
+    interpolator = PchipInterpolator(q_unique, v_unique, extrapolate=True)
+    v_save = interpolator(q_save)
+    return q_save, v_save
 
 
-def process_profile(
-    phase_table: pd.DataFrame,
-    direction: str,
-    title_prefix: str,
-    boundary_start_offset: int,
-    integration_padding_samples: int,
-    x_values: np.ndarray | pd.Series,
-    x_label: str,
-    extend_max_factor: float = 1.0,
-    extend_min_fraction: float = 0.0,
-    use_absolute_current: bool = False,
-    shift_output_capacity_ah: float = 0.0,
-    integrate_to_phase_end: bool = False,
-) -> ProfileResult:
-    """Run one full OCP extraction phase with plotting and interpolation."""
+def _plot_steps_tile(ax, time_s: np.ndarray, current_a: np.ndarray, voltage_v: np.ndarray,
+                      idx: np.ndarray, title: str) -> None:
+    """Twin-axis current/voltage-vs-time tile with detected-step markers (MATLAB yyaxis)."""
 
-    time_s = phase_table["TestTime"].to_numpy()
-    current_a = phase_table["Current"].to_numpy()
-    voltage_v = phase_table["Voltage"].to_numpy()
-
-    transition_indices = detect_transition_indices(current_a, direction)
-    if boundary_start_offset >= transition_indices.size:
-        raise ValueError(
-            f"{title_prefix} does not have enough detected transitions for offset {boundary_start_offset}."
-        )
-
-    selected_transition_indices = transition_indices[boundary_start_offset:]
-    integration_start_index = int(selected_transition_indices[0])
-    if integrate_to_phase_end:
-        # Match MATLAB windows that integrate from first selected pulse to the end of the phase.
-        integration_end_index = len(time_s) - 1
-    else:
-        integration_end_index = clamp_endpoint(
-            int(transition_indices[-1]), integration_padding_samples, len(time_s)
-        )
-
-    create_step_figure(x_values, current_a, voltage_v, selected_transition_indices, title_prefix, x_label)
-
-    integration_slice = slice(integration_start_index, integration_end_index + 1)
-    integration_current_a = current_a[integration_slice]
-    if use_absolute_current:
-        integration_current_a = np.abs(integration_current_a)
-
-    throughput_axis = cumulative_trapezoid(
-        integration_current_a, time_s[integration_slice], initial=0.0
-    )
-    full_voltage_v = voltage_v[integration_slice]
-
-    relative_boundary_indices = selected_transition_indices - integration_start_index
-    boundary_indices_with_endpoint = np.concatenate(
-        [relative_boundary_indices, np.array([len(throughput_axis) - 1], dtype=int)]
-    )
-    boundary_capacity_ah = throughput_axis[boundary_indices_with_endpoint]
-    boundary_voltage_v = voltage_v[
-        np.concatenate([selected_transition_indices, np.array([integration_end_index], dtype=int)])
-    ]
-
-    interpolation_start_ah = float(np.min(boundary_capacity_ah) - np.max(boundary_capacity_ah) * extend_min_fraction)
-    interpolation_stop_ah = float(np.max(boundary_capacity_ah) * extend_max_factor)
-    interpolated_capacity_ah, interpolated_voltage_v = build_interpolated_profile(
-        boundary_capacity_ah,
-        boundary_voltage_v,
-        interpolation_start_ah,
-        interpolation_stop_ah,
-        interpolation_step_ah=INTERPOLATION_STEP_AH,
-        shift_output_capacity_ah=shift_output_capacity_ah,
-    )
-
-    legend_text = (
-        "Profile interpolated + extrapolated with 0.2Ah grid"
-        if (extend_max_factor != 1.0 or extend_min_fraction != 0.0)
-        else "Profile interpolated with 0.2Ah grid"
-    )
-    create_throughput_figure(
-        throughput_axis,
-        full_voltage_v,
-        boundary_capacity_ah,
-        boundary_voltage_v,
-        interpolated_capacity_ah,
-        interpolated_voltage_v,
-        title_prefix,
-        legend_text,
-    )
-
-    return ProfileResult(
-        boundary_capacity_ah=boundary_capacity_ah,
-        boundary_voltage_v=boundary_voltage_v,
-        interpolated_capacity_ah=interpolated_capacity_ah,
-        interpolated_voltage_v=interpolated_voltage_v,
-        throughput_axis_ah=throughput_axis,
-        full_voltage_v=full_voltage_v,
-    )
+    ax_voltage = ax.twinx()
+    (h_current,) = ax.plot(time_s, current_a, color="tab:blue")
+    h_current_steps = ax.scatter(time_s[idx], current_a[idx], color="tab:blue")
+    ax.set_ylabel("Current (A)")
+    (h_voltage,) = ax_voltage.plot(time_s, voltage_v, color="tab:orange")
+    ax_voltage.scatter(time_s[idx], voltage_v[idx], color="tab:orange")
+    ax_voltage.set_ylabel("Voltage (V)")
+    ax.set_title(title)
+    ax.set_xlabel("Time (s)")
+    ax.legend([h_current, h_voltage, h_current_steps], ["Current", "Voltage", "Detected step indices"], loc="best")
 
 
-def create_comparison_figure(
-    title_text: str,
-    delithiation_capacity_ah: np.ndarray,
-    delithiation_voltage_v: np.ndarray,
-    lithiation_capacity_ah: np.ndarray,
-    lithiation_voltage_v: np.ndarray,
-) -> None:
-    """Create the final lithiation-vs-delithiation comparison figure."""
+def _plot_boundary_tile(ax, boundary_q_ah: np.ndarray, boundary_v: np.ndarray, throughput_ah: np.ndarray,
+                         full_voltage_v: np.ndarray, interp_q_ah: np.ndarray, interp_v: np.ndarray,
+                         title: str) -> None:
+    """Boundary-points-vs-full-throughput-trajectory QC tile."""
 
-    plt.figure()
-    plt.plot(delithiation_capacity_ah, delithiation_voltage_v, linewidth=1.5)
-    plt.plot(np.flip(lithiation_capacity_ah), lithiation_voltage_v, linewidth=1.5)
-    plt.title(title_text)
-    plt.xlabel("Capacity (Ah)")
-    plt.ylabel("Voltage (V)")
-    plt.legend(["Delithiation", "Lithiation"], loc="best")
-    plt.tight_layout()
+    ax.plot(boundary_q_ah, boundary_v, "o-")
+    ax.plot(throughput_ah, full_voltage_v)
+    ax.plot(interp_q_ah, interp_v)
+    ax.set_title(title)
+    ax.set_xlabel("Capacity / Throughput (Ah)")
+    ax.set_ylabel("Voltage (V)")
+    ax.legend(["Boundary points", "Full throughput trajectory", "Interpolated profile (100 pts)"], loc="best")
 
 
-def build_combined_table(
-    delithiation_profile: ProfileResult,
-    lithiation_profile: ProfileResult,
-    qmax_ah: float,
-) -> pd.DataFrame:
-    """Combine lithiation and delithiation profiles into one export-ready SoC table."""
+def build_diagnostics_figure(figure_name: str, electrode_label: str, delith: dict, lith: dict, png_dir: Path):
+    """Build and save the 2x2 tiled GITT-detection diagnostics figure for one electrode."""
 
-    return pd.DataFrame(
-        {
-            "Mode": np.concatenate(
-                [
-                    np.repeat("Delithiation", len(delithiation_profile.interpolated_capacity_ah)),
-                    np.repeat("Lithiation", len(lithiation_profile.interpolated_capacity_ah)),
-                ]
-            ),
-            "SoC(-)": np.concatenate(
-                [
-                    delithiation_profile.interpolated_capacity_ah / qmax_ah,
-                    lithiation_profile.interpolated_capacity_ah / qmax_ah,
-                ]
-            ),
-            "Voltage(V)": np.concatenate(
-                [
-                    delithiation_profile.interpolated_voltage_v,
-                    lithiation_profile.interpolated_voltage_v,
-                ]
-            ),
-        }
-    )
+    fig, axes = plt.subplots(2, 2, figsize=(1324 / 96, 839 / 96))
+    if fig.canvas.manager is not None:
+        fig.canvas.manager.set_window_title(figure_name)
+    _plot_steps_tile(axes[0, 0], delith["time"], delith["current"], delith["voltage"], delith["idx"],
+                      f"{electrode_label} Delithiation: Detected Steps")
+    _plot_boundary_tile(axes[0, 1], delith["q"], delith["v"], delith["throughput"], delith["full_voltage"],
+                         delith["qsave"], delith["vsave"],
+                         f"{electrode_label} Delithiation: Boundary Points vs Full Throughput Curve")
+    _plot_steps_tile(axes[1, 0], lith["time"], lith["current"], lith["voltage"], lith["idx"],
+                      f"{electrode_label} Lithiation: Detected Steps")
+    _plot_boundary_tile(axes[1, 1], lith["q"], lith["v"], lith["throughput"], lith["full_voltage"],
+                         lith["qsave"], lith["vsave"],
+                         f"{electrode_label} Lithiation: Boundary Points vs Full Throughput Curve")
+    fig.tight_layout()
 
-
-def sanitize_filename(title_text: str) -> str:
-    """Convert a figure title into a filesystem-safe PNG filename."""
-
-    safe_title = re.sub(r"[^\w\s-]", "", title_text)
-    safe_title = re.sub(r"\s+", "_", safe_title.strip())
-    return safe_title or "figure"
-
-
-def save_all_figures(png_dir: Path) -> None:
-    """Save all current figures to PNG files in figure-number order."""
-
+    # Save explicitly here (R-022): matplotlib's ax.twinx() (used for the
+    # steps tiles) adds extra untitled axes to fig.axes, which would break a
+    # generic "grab the last axes' title" filename-sniffing save loop (MATLAB
+    # has no such issue since yyaxis keeps one Axes object per tile).
     png_dir.mkdir(parents=True, exist_ok=True)
-    figure_numbers = sorted(plt.get_fignums())
-    for figure_index, figure_number in enumerate(figure_numbers, start=1):
-        figure = plt.figure(figure_number)
-        figure_title = ""
-        if figure.axes:
-            figure_title = figure.axes[-1].get_title()
-        output_name = sanitize_filename(figure_title or f"figure_{figure_number}")
-        output_path = png_dir / f"{figure_index:02d}_{output_name}.png"
-        figure.savefig(output_path, dpi=150, bbox_inches="tight")
-        print(f"  Saved: {output_path}")
+    output_path = png_dir / f"{sanitize_filename(figure_name)}.png"
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    print(f"  Saved: {output_path}")
+    return fig
+
+
+def build_combined_table(qsave_delith: np.ndarray, vsave_delith: np.ndarray,
+                          qsave_lith: np.ndarray, vsave_lith: np.ndarray, qmax_ah: float) -> pd.DataFrame:
+    """Combine lithiation/delithiation interpolated profiles into one SoC-vs-voltage table."""
+
+    return pd.DataFrame({
+        "Mode": np.concatenate([np.repeat("Delithiation", len(qsave_delith)), np.repeat("Lithiation", len(qsave_lith))]),
+        "SoC(-)": np.concatenate([qsave_delith / qmax_ah, qsave_lith / qmax_ah]),
+        "Voltage(V)": np.concatenate([vsave_delith, vsave_lith]),
+    })
+
+
+def _process_electrode(csv_path: Path, label: str, delith_start_offset: int, png_dir: Path,
+                       delith_drop: str = "last") -> dict:
+    """Run the full delithiation+lithiation extraction pipeline for one electrode."""
+
+    raw_table = load_ocp_table(csv_path)
+    print(f"  Loaded {len(raw_table)} rows from {csv_path}")
+
+    # --- Delithiation (positive current) ---
+    delith_table = raw_table.loc[raw_table["Current"] >= 0.0].reset_index(drop=True)
+    time_d = delith_table["TestTime"].to_numpy()
+    current_d = delith_table["Current"].to_numpy()
+    voltage_d = delith_table["Voltage"].to_numpy()
+    idx_d = find_transition_indices(current_d, "positive")
+    # Electrode-specific first/last transition drop, matching MATLAB
+    # extractOCPLines.m: anode delith uses index(1:end-1) (drop last), cathode
+    # delith uses index(2:end) (drop first). Dropping the wrong end put the
+    # cathode's first GITT boundary one pulse too early (pre-pulse rest, #114).
+    idx_d = idx_d[1:] if delith_drop == "first" else idx_d[:-1]
+    throughput_d, full_voltage_d, q_d, v_d = process_delithiation_phase(
+        time_d, current_d, voltage_d, idx_d, delith_start_offset)
+    qsave_d, vsave_d = interpolate_profile(q_d, v_d)
+
+    # --- Lithiation (negative current) ---
+    lith_table = raw_table.loc[raw_table["Current"] <= 0.0].reset_index(drop=True)
+    time_l = lith_table["TestTime"].to_numpy()
+    current_l = lith_table["Current"].to_numpy()
+    voltage_l = lith_table["Voltage"].to_numpy()
+    idx_l = find_transition_indices(current_l, "negative")
+    idx_l = idx_l[1:]  # drop first transition (matches MATLAB index(2:end))
+    throughput_l, full_voltage_l, q_l, v_l = process_lithiation_phase(time_l, current_l, voltage_l, idx_l)
+    qsave_l, vsave_l = interpolate_profile(q_l, v_l)
+
+    print(f"  Done. {len(qsave_d)} interpolated points, Q range [{qsave_d.min():.1f}, {qsave_d.max():.1f}] Ah")
+    print(f"  Done. {len(qsave_l)} interpolated points, Q range [{qsave_l.min():.1f}, {qsave_l.max():.1f}] Ah")
+
+    delith = {"time": time_d, "current": current_d, "voltage": voltage_d, "idx": idx_d,
+              "throughput": throughput_d, "full_voltage": full_voltage_d, "q": q_d, "v": v_d,
+              "qsave": qsave_d, "vsave": vsave_d}
+    lith = {"time": time_l, "current": current_l, "voltage": voltage_l, "idx": idx_l,
+            "throughput": throughput_l, "full_voltage": full_voltage_l, "q": q_l, "v": v_l,
+            "qsave": qsave_l, "vsave": vsave_l}
+
+    build_diagnostics_figure(f"{label} GITT Detection Diagnostics", label, delith, lith, png_dir)
+    qmax = float(max(np.max(qsave_d), np.max(qsave_l)))
+    combined_table = build_combined_table(qsave_d, vsave_d, qsave_l, vsave_l, qmax)
+    return {"delith": delith, "lith": lith, "qmax": qmax, "table": combined_table}
+
+
+def _style_publication_axes(ax) -> None:
+    """Apply R-017/R-019/R-021 styling to one publication axes."""
+
+    ax.grid(True)
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_linewidth(0.8)
+    ax.tick_params(labelsize=PUB_FONTSIZE)
+    for tick_label in ax.get_xticklabels() + ax.get_yticklabels():
+        tick_label.set_fontname(PUB_FONT)
+
+
+def _plot_gitt_panel(ax, throughput_del_ah: np.ndarray, full_voltage_del: np.ndarray,
+                      q_del_ah: np.ndarray, v_del: np.ndarray,
+                      throughput_lith_ah: np.ndarray, full_voltage_lith: np.ndarray,
+                      q_lith_ah: np.ndarray, v_lith: np.ndarray):
+    """
+    Draw the dashed GITT delithiation/lithiation lines + boundary markers on one
+    publication panel. The delithiation trace/markers are mirrored about their
+    own max (mAh) so they read right-to-left down to 0; lithiation is left as-is.
+
+    Returns (legend_proxy_delithiation, legend_proxy_lithiation).
+    """
+
+    x_gitt_del = throughput_del_ah * 1000
+    q_gitt_del = q_del_ah * 1000
+    m_gitt_del = max(np.max(x_gitt_del), np.max(q_gitt_del))
+
+    ax.plot(m_gitt_del - x_gitt_del, full_voltage_del, "--", color=COL_RED_LIGHT, linewidth=0.6, zorder=2)
+    ax.plot(throughput_lith_ah * 1000, full_voltage_lith, "--", color=COL_DARK_BLUE_LIGHT, linewidth=0.6, zorder=2)
+    ax.plot(m_gitt_del - q_gitt_del, v_del, "o", color=COL_RED_LIGHT, markerfacecolor=COL_RED_LIGHT,
+            markersize=1.5, linestyle="none", zorder=3)
+    ax.plot(q_lith_ah * 1000, v_lith, "o", color=COL_DARK_BLUE_LIGHT, markerfacecolor=COL_DARK_BLUE_LIGHT,
+            markersize=1.5, linestyle="none", zorder=3)
+
+    # Legend-only proxy handles combining the dashed GITT line with its relaxation marker.
+    proxy_del = Line2D([], [], linestyle="--", color=COL_RED_LIGHT, linewidth=0.6,
+                        marker="o", markersize=3, markerfacecolor=COL_RED_LIGHT)
+    proxy_lith = Line2D([], [], linestyle="--", color=COL_DARK_BLUE_LIGHT, linewidth=0.6,
+                         marker="o", markersize=3, markerfacecolor=COL_DARK_BLUE_LIGHT)
+    return proxy_del, proxy_lith
 
 
 def main() -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -488,219 +433,119 @@ def main() -> Tuple[pd.DataFrame, pd.DataFrame]:
     anode_csv = resolve_input_path(args.anode_csv, DEFAULT_ANODE_NETWORK)
     cathode_csv = resolve_input_path(args.cathode_csv, DEFAULT_CATHODE_NETWORK)
 
-    print("[1/8] Anode delithiation: loading data...")
-    anode_table = load_ocp_table(anode_csv)
-    print(f"  Loaded {len(anode_table)} rows from {anode_csv}")
-    anode_delithiation_table = select_phase(anode_table, anode_table["Current"] >= 0.0)
-    anode_datetime_axis = anode_delithiation_table.get("DateTime", anode_delithiation_table["TestTime"])
-    anode_delithiation_profile = process_profile(
-        anode_delithiation_table,
-        direction="positive",
-        title_prefix="Anode Delithiation",
-        boundary_start_offset=3,
-        integration_padding_samples=BOUNDARY_PADDING_SAMPLES,
-        x_values=anode_datetime_axis,
-        x_label="DateTime" if "DateTime" in anode_delithiation_table.columns else "Time (s)",
-    )
-    print(
-        "  Done. "
-        f"{len(anode_delithiation_profile.interpolated_capacity_ah)} interpolated points, "
-        f"Q range [{anode_delithiation_profile.interpolated_capacity_ah.min():.1f}, "
-        f"{anode_delithiation_profile.interpolated_capacity_ah.max():.1f}] Ah"
-    )
+    print("[1/7] Anode: extracting delithiation + lithiation GITT profiles...")
+    anode = _process_electrode(anode_csv, "Anode", delith_start_offset=2, png_dir=args.png_dir,
+                               delith_drop="last")
 
-    print("[2/8] Anode lithiation: filtering data...")
-    anode_lithiation_table = select_phase(anode_table, anode_table["Current"] <= 0.0)
-    anode_lithiation_profile = process_profile(
-        anode_lithiation_table,
-        direction="negative",
-        title_prefix="Anode Lithiation",
-        boundary_start_offset=1,
-        integration_padding_samples=0,
-        x_values=anode_lithiation_table["TestTime"],
-        x_label="Time (s)",
-        use_absolute_current=True,
-        integrate_to_phase_end=True,
-    )
-    print(
-        "  Done. "
-        f"{len(anode_lithiation_profile.interpolated_capacity_ah)} interpolated points, "
-        f"Q range [{anode_lithiation_profile.interpolated_capacity_ah.min():.1f}, "
-        f"{anode_lithiation_profile.interpolated_capacity_ah.max():.1f}] Ah"
-    )
+    print("[2/7] Cathode: extracting delithiation + lithiation GITT profiles...")
+    cathode = _process_electrode(cathode_csv, "Cathode", delith_start_offset=1, png_dir=args.png_dir,
+                                 delith_drop="first")
 
-    print("[3/8] Anode: plotting comparison figure...")
-    create_comparison_figure(
-        "Anode Interpolated Lithiation vs Delithiation Profiles",
-        anode_delithiation_profile.interpolated_capacity_ah,
-        anode_delithiation_profile.interpolated_voltage_v,
-        anode_lithiation_profile.interpolated_capacity_ah,
-        anode_lithiation_profile.interpolated_voltage_v,
-    )
-
-    print("[3b/8] Anode: plotting publication figure...")
-    qmax_anode = float(
-        max(
-            np.max(anode_delithiation_profile.interpolated_capacity_ah),
-            np.max(anode_lithiation_profile.interpolated_capacity_ah),
-        )
-    )
-    plt.figure()
-    plt.plot(
-        anode_delithiation_profile.interpolated_capacity_ah / qmax_anode,
-        anode_delithiation_profile.interpolated_voltage_v,
-        linewidth=1.5,
-    )
-    plt.plot(
-        anode_lithiation_profile.interpolated_capacity_ah / qmax_anode,
-        anode_lithiation_profile.interpolated_voltage_v,
-        linewidth=1.5,
-    )
-    plt.plot(
-        anode_delithiation_profile.throughput_axis_ah / qmax_anode,
-        anode_delithiation_profile.full_voltage_v,
-        "b--",
-        linewidth=1.1,
-    )
-    plt.plot(
-        anode_lithiation_profile.throughput_axis_ah / qmax_anode,
-        anode_lithiation_profile.full_voltage_v,
-        "b--",
-        linewidth=1.1,
-    )
-    plt.title("Anode Interpolated Lithiation vs Delithiation Profiles")
-    plt.xlabel("SoC (-)")
-    plt.ylabel("Voltage (V)")
-    plt.legend(["Delithiation", "Lithiation", "GITT voltage"], loc="best")
-    plt.tight_layout()
-
-    anode_combined_table = build_combined_table(
-        anode_delithiation_profile,
-        anode_lithiation_profile,
-        qmax_anode,
-    )
-
-    print("[4/8] Cathode delithiation: loading data...")
-    cathode_table = load_ocp_table(cathode_csv)
-    print(f"  Loaded {len(cathode_table)} rows from {cathode_csv}")
-    cathode_delithiation_table = select_phase(cathode_table, cathode_table["Current"] >= 0.0)
-    cathode_delithiation_profile = process_profile(
-        cathode_delithiation_table,
-        direction="positive",
-        title_prefix="Cathode Delithiation",
-        boundary_start_offset=1,
-        integration_padding_samples=BOUNDARY_PADDING_SAMPLES,
-        x_values=cathode_delithiation_table["TestTime"],
-        x_label="Time (s)",
-        extend_max_factor=1.08,
-    )
-    print(
-        "  Done. "
-        f"{len(cathode_delithiation_profile.interpolated_capacity_ah)} interpolated points, "
-        f"Q range [{cathode_delithiation_profile.interpolated_capacity_ah.min():.1f}, "
-        f"{cathode_delithiation_profile.interpolated_capacity_ah.max():.1f}] Ah"
-    )
-
-    print("[5/8] Cathode lithiation: filtering data...")
-    cathode_lithiation_table = select_phase(cathode_table, cathode_table["Current"] <= 0.0)
-    cathode_lithiation_profile = process_profile(
-        cathode_lithiation_table,
-        direction="negative",
-        title_prefix="Cathode Lithiation",
-        boundary_start_offset=1,
-        integration_padding_samples=0,
-        x_values=cathode_lithiation_table["TestTime"],
-        x_label="Time (s)",
-        use_absolute_current=True,
-        integrate_to_phase_end=True,
-    )
-    print(
-        "  Done. "
-        f"{len(cathode_lithiation_profile.interpolated_capacity_ah)} interpolated points, "
-        f"Q range [{cathode_lithiation_profile.interpolated_capacity_ah.min():.1f}, "
-        f"{cathode_lithiation_profile.interpolated_capacity_ah.max():.1f}] Ah"
-    )
-
-    print("[6/8] Cathode: plotting comparison figure...")
-    create_comparison_figure(
-        "Cathode Interpolated Lithiation vs Delithiation Profiles",
-        cathode_delithiation_profile.interpolated_capacity_ah,
-        cathode_delithiation_profile.interpolated_voltage_v,
-        cathode_lithiation_profile.interpolated_capacity_ah,
-        cathode_lithiation_profile.interpolated_voltage_v,
-    )
-
-    print("[6b/8] Cathode: plotting publication figure...")
-    qmax_cathode = float(
-        max(
-            np.max(cathode_delithiation_profile.interpolated_capacity_ah),
-            np.max(cathode_lithiation_profile.interpolated_capacity_ah),
-        )
-    )
-    plt.figure()
-    plt.plot(
-        cathode_delithiation_profile.interpolated_capacity_ah / qmax_cathode,
-        cathode_delithiation_profile.interpolated_voltage_v,
-        linewidth=1.5,
-    )
-    plt.plot(
-        cathode_lithiation_profile.interpolated_capacity_ah / qmax_cathode,
-        cathode_lithiation_profile.interpolated_voltage_v,
-        linewidth=1.5,
-    )
-    plt.plot(
-        cathode_delithiation_profile.throughput_axis_ah / qmax_cathode,
-        cathode_delithiation_profile.full_voltage_v,
-        "b--",
-        linewidth=1.1,
-    )
-    plt.plot(
-        cathode_lithiation_profile.throughput_axis_ah / qmax_cathode,
-        cathode_lithiation_profile.full_voltage_v,
-        "b--",
-        linewidth=1.1,
-    )
-    plt.title("Cathode Interpolated Lithiation vs Delithiation Profiles")
-    plt.xlabel("SoC (-)")
-    plt.ylabel("Voltage (V)")
-    plt.legend(["Delithiation", "Lithiation", "GITT voltage"], loc="best")
-    plt.tight_layout()
-
-    cathode_combined_table = build_combined_table(
-        cathode_delithiation_profile,
-        cathode_lithiation_profile,
-        qmax_cathode,
-    )
-
-    print(
-        f"[7/8] Combined tables built: T_anode ({len(anode_combined_table)} rows), "
-        f"T_cathode ({len(cathode_combined_table)} rows)"
-    )
+    print(f"[3/7] Combined tables built: T_anode ({len(anode['table'])} rows), "
+          f"T_cathode ({len(cathode['table'])} rows)")
 
     if args.export_csv:
         args.output_dir.mkdir(parents=True, exist_ok=True)
         anode_output = args.output_dir / "GITT_anode_combined.csv"
         cathode_output = args.output_dir / "GITT_cathode_combined.csv"
-        anode_combined_table.to_csv(anode_output, index=False)
-        cathode_combined_table.to_csv(cathode_output, index=False)
+        anode["table"].to_csv(anode_output, index=False)
+        cathode["table"].to_csv(cathode_output, index=False)
         print(f"  Wrote: {anode_output}")
         print(f"  Wrote: {cathode_output}")
 
-    print("[8/8] Saving figures to pngs/ folder...")
-    save_all_figures(args.png_dir)
+    # --- Publication figure: one combined two-panel PDF (R-024) -------------
+    print("[4/7] Building the combined anode/cathode publication figure...")
+    pub_fig_width_cm, pub_fig_height_cm = 9.24, 6.60
+    fig_pub, (ax_anode, ax_cathode) = plt.subplots(
+        2, 1, figsize=(pub_fig_width_cm / 2.54, pub_fig_height_cm / 2.54))
+
+    proxy_del_a, proxy_lith_a = _plot_gitt_panel(
+        ax_anode, anode["delith"]["throughput"], anode["delith"]["full_voltage"],
+        anode["delith"]["q"], anode["delith"]["v"],
+        anode["lith"]["throughput"], anode["lith"]["full_voltage"],
+        anode["lith"]["q"], anode["lith"]["v"])
+    ax_anode.set_ylabel("Voltage [V]", fontname=PUB_FONT, fontsize=PUB_FONTSIZE)
+    ax_anode.set_xlim(0, 5)
+    ax_anode.set_ylim(0, 0.6)
+    _style_publication_axes(ax_anode)
+    ax_anode.text(0.02, 0.96, "(a)", transform=ax_anode.transAxes, fontname=PUB_FONT,
+                  fontsize=PUB_FONTSIZE, ha="left", va="top")
+
+    proxy_del_c, proxy_lith_c = _plot_gitt_panel(
+        ax_cathode, cathode["delith"]["throughput"], cathode["delith"]["full_voltage"],
+        cathode["delith"]["q"], cathode["delith"]["v"],
+        cathode["lith"]["throughput"], cathode["lith"]["full_voltage"],
+        cathode["lith"]["q"], cathode["lith"]["v"])
+    ax_cathode.set_xlim(0, 6.2)
+    ax_cathode.set_ylim(2.5, 4.5)
+    ax_cathode.set_xlabel("Throughput [mAh]", fontname=PUB_FONT, fontsize=PUB_FONTSIZE)
+    ax_cathode.set_ylabel("Voltage [V]", fontname=PUB_FONT, fontsize=PUB_FONTSIZE)
+    _style_publication_axes(ax_cathode)
+    ax_cathode.text(0.02, 0.96, "(b)", transform=ax_cathode.transAxes, fontname=PUB_FONT,
+                     fontsize=PUB_FONTSIZE, ha="left", va="top")
+    # No legend on panel (b) (user decision, MATLAB source 2026-08-13): the
+    # single legend on panel (a) covers both panels.
+
+    # --- Slow charge/discharge overlay (solid lines, both panels) -----------
+    print("[5/7] Slow charge/discharge: overlaying anode and cathode curves...")
+    anode_dir = anode_csv.parent
+    cathode_dir = cathode_csv.parent
+    t_anode_charge = pd.read_csv(anode_dir / "anode_NExtBMS_fCharge.csv")
+    t_anode_discharge = pd.read_csv(anode_dir / "anode_NExtBMS_fDischarge.csv")
+    t_cathode_charge = pd.read_csv(cathode_dir / "cathode_NExtBMS_fCharge.csv")
+    t_cathode_discharge = pd.read_csv(cathode_dir / "cathode_NExtBMS_fDischarge.csv")
+
+    # Anode: mirror the slow delithiation (charge) x-axis about its own max (mAh),
+    # independently from the GITT delithiation mirror above.
+    x_slow_del_anode = t_anode_charge.iloc[:, 0].to_numpy() * MASS_ANODE_G
+    m_slow_del_anode = np.max(x_slow_del_anode)
+    h_anode_charge, = ax_anode.plot(m_slow_del_anode - x_slow_del_anode, t_anode_charge.iloc[:, 1].to_numpy(),
+                                     "-", color=COL_RED, linewidth=1.0, zorder=1)
+    h_anode_discharge, = ax_anode.plot(t_anode_discharge.iloc[:, 0].to_numpy() * MASS_ANODE_G,
+                                        t_anode_discharge.iloc[:, 1].to_numpy(),
+                                        "-", color=COL_DARK_BLUE, linewidth=1.0, zorder=1)
+    # Single shared legend for the whole figure, on panel (a), upper-right.
+    ax_anode.legend([proxy_del_a, proxy_lith_a, h_anode_charge, h_anode_discharge],
+                     ["GITT delithiation", "GITT lithiation", "Slow delithiation", "Slow lithiation"],
+                     loc="upper right", frameon=False, fontsize=PUB_FONTSIZE, prop={"family": PUB_FONT})
+
+    x_slow_del_cathode = t_cathode_charge.iloc[:, 0].to_numpy() * MASS_CATHODE_G
+    m_slow_del_cathode = np.max(x_slow_del_cathode)
+    ax_cathode.plot(m_slow_del_cathode - x_slow_del_cathode, t_cathode_charge.iloc[:, 1].to_numpy(),
+                     "-", color=COL_RED, linewidth=1.0, zorder=1)
+    ax_cathode.plot(t_cathode_discharge.iloc[:, 0].to_numpy() * MASS_CATHODE_G,
+                     t_cathode_discharge.iloc[:, 1].to_numpy(),
+                     "-", color=COL_DARK_BLUE, linewidth=1.0, zorder=1)
+    # Cathode legend intentionally omitted (see panel (a) note above).
+
+    fig_pub.tight_layout()
+
+    save_dir = args.png_dir
+    save_dir.mkdir(parents=True, exist_ok=True)
+    pdf_file_ocp = save_dir / "OCP_HalfCell.pdf"
+    png_file_ocp = save_dir / "OCP_HalfCell.png"
+    fig_pub.savefig(pdf_file_ocp, bbox_inches="tight")
+    print(f"OCP half-cell publication PDF saved: {pdf_file_ocp}")
+    fig_pub.savefig(png_file_ocp, dpi=300, bbox_inches="tight")
+    print(f"OCP half-cell publication PNG saved: {png_file_ocp}")
+
+    print("[6/7] Diagnostic figures already saved to pngs/ (see [1/7]/[2/7] above).")
 
     if not args.no_show_figures:
-        print("[9/9] Showing figures in non-blocking mode...")
+        print("[7/7] Showing figures in non-blocking mode...")
         plt.show(block=False)
-        # Flush one GUI event cycle so windows appear without blocking script completion.
         plt.pause(0.1)
-        if not args.no_hold_figures:
-            print("      Figures are open. Press Enter in this terminal to finish.")
-            input()
-            plt.close("all")
 
-    print("[9/9] --- extractOCPLines complete ---")
-    return anode_combined_table, cathode_combined_table
+    print("--- extractOCPLines complete ---")
+    return anode["table"], cathode["table"]
+
+
+def sanitize_filename(title_text: str) -> str:
+    """Convert a figure title into a filesystem-safe PNG filename."""
+
+    safe_title = re.sub(r"[^\w\s-]", "", title_text)
+    safe_title = re.sub(r"\s+", "_", safe_title.strip())
+    return safe_title or "figure"
 
 
 if __name__ == "__main__":

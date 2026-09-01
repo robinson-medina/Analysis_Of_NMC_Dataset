@@ -1,14 +1,16 @@
 % Summary: Extract OCP-like lookup lines from GITT datasets for anode/cathode,
 % then scale/interpolate and merge each half-cell GITT profile with its slow
-% charge/discharge curve into a single publication figure per electrode. Anode
+% charge/discharge curve into one two-panel publication figure: panel (a) is
+% the graphite anode, panel (b) the NMC532 cathode (R-024). Anode
 % data is sourced from one combined anode CSV file containing both modes.
 %
 % Usage:   Set the 'AnodeCSV' and 'CathodeCSV' paths below (and the active-
 %          material masses massAnode_g / massCathode_g) and run the script
 %          (no arguments).
 %
-% Produces: Vector figures 'Anode.pdf' and 'Cathode.pdf' plus per-figure PNG
-%           snapshots in ../pngs (R-022). No .fig/.mat files are written.
+% Produces: Vector figure 'OCP_HalfCell.pdf' (+ .png at the same stem) plus
+%           per-figure PNG snapshots in its R-022 directory. No .fig/.mat files
+%           are written.
 %
 % Inputs: CSV files containing time, current, and voltage columns; cathode from MAT files
 % Outputs: Combined anode and cathode tables with mode, capacity, and voltage columns
@@ -18,6 +20,7 @@
 
 % Reset workspace and figures for a clean run of the first section.
 clear; close all; clc;
+addpath(fullfile(fileparts(mfilename('fullpath')), '..', '..', 'Functions'));
 fprintf('--- extractOCPLines started ---\n');
 
 %% ===================================================================
@@ -189,59 +192,82 @@ Vsave_anode_lith = Vsave(:);
 fprintf('  Done. %d interpolated points, Q range [%.1f, %.1f] Ah\n', numel(Qsave_anode_lith), min(Qsave_anode_lith), max(Qsave_anode_lith));
 
 %% Compare the interpolated anode lithiation and delithiation for publication
-fprintf('[3/10] Anode: plotting publication figure...\n');
-% Scale both publication dimensions together so the tight-cropped Anode PDF
-% reaches the R-021 single-column target without changing its aspect ratio.
-pubFigWidthCm = 8.65;
-pubFigHeightCm = 6.39;
+fprintf('[3/10] Anode: plotting publication figure (panel a)...\n');
+% Width tuned so the tight-cropped exported PDF hits the R-021 (2026-08-12)
+% single-column target of 244.4 pt (= 8.59 cm, 97%% of the column span).
+% Height covers two stacked panels (a: anode, b: cathode) sharing one x-label.
+pubFigWidthCm = 9.24;
+pubFigHeightCm = 6.60;
 pubFontSizePt = 8;
 colDarkBlue = [1 17 181] ./ 255;
 colRed = [255 0 0] ./ 255;
 colBlack = [0 0 0];
+% Dimmed publication variants for fig. 2: use the same hue family as the
+% corresponding slow curve, but blend towards white so the GITT traces read as
+% a lighter-intensity overlay rather than a competing colour.
+colRedLight = 0.65 * colRed + 0.35 * [1 1 1];
+colDarkBlueLight = 0.65 * colDarkBlue + 0.35 * [1 1 1];
 % R-017 preferred palette extension color, used to give the anode/cathode
 % Slow delithiation line a distinct colour instead of sharing red with GITT.
 colGreen = [12 195 82] ./ 255;
-figAnodePub = figure('Color', 'w', 'Units', 'centimeters', 'Position', [2 2 pubFigWidthCm pubFigHeightCm]);
-figAnodePub.PaperPositionMode = 'auto';
+% One publication figure with two vertically stacked panels (R-024):
+% panel (a) = graphite anode (top), panel (b) = NMC532 cathode (bottom).
+figOCPPub = figure('Color', 'w', 'Units', 'centimeters', 'Position', [2 2 pubFigWidthCm pubFigHeightCm]);
+figOCPPub.PaperPositionMode = 'auto';
+tOCPPub = tiledlayout(figOCPPub, 2, 1, 'TileSpacing', 'compact', 'Padding', 'compact');
+axAnodePub = nexttile(tOCPPub, 1);
 % GITT voltage segments only (interpolated Delithiation/Lithiation lines removed);
 % x-axis converted from Ah to mAh (x1000); dashed to distinguish from the
 % solid slow charge/discharge lines overlaid later on this same figure.
 % Thinner LineWidth tightens MATLAB's dash/gap pattern (which scales with
 % LineWidth) so dashes sit closer together instead of leaving wide gaps.
-plot(throughput_anode_del  * 1000, voltage_full_anode_del,  '--', 'Color', colRed,   'LineWidth', 0.6);
+% Mirror the GITT delithiation x-axis about its own max (mAh) so the trace
+% reads right-to-left from max down to 0; lithiation keeps its original
+% left-to-right direction. Line and its boundary markers share one max so
+% both stay aligned after mirroring.
+xGittDelAnode = throughput_anode_del * 1000;
+qGittDelAnode = Q_anode_del * 1000;
+mGittDelAnode = max([xGittDelAnode; qGittDelAnode]);
+plot(mGittDelAnode - xGittDelAnode, voltage_full_anode_del,  '--', 'Color', colRedLight,      'LineWidth', 0.6);
 hold on
-plot(throughput_anode_lith * 1000, voltage_full_anode_lith, '--', 'Color', colBlack, 'LineWidth', 0.6);
+plot(throughput_anode_lith * 1000, voltage_full_anode_lith, '--', 'Color', colDarkBlueLight, 'LineWidth', 0.6);
 % Overlay open circular markers at each GITT pulse boundary on the voltage line
 % (same boundary-point style as figs 4 and 10). Markers only (no connecting
 % line) so the dashed GITT trace stays intact; coloured to match their own
-% GITT line (red=delithiation, black=lithiation) rather than a third colour.
-plot(Q_anode_del  * 1000, V_anode_del,  'o', 'Color', colRed, 'MarkerSize', 1.5, 'LineStyle', 'none');
-plot(Q_anode_lith * 1000, V_anode_lith, 'o', 'Color', colBlack, 'MarkerSize', 1.5, 'LineStyle', 'none');
+% GITT line using the same hue family as the slow curve, but at lower intensity.
+% Filled (MarkerFaceColor = edge colour) so the markers read as solid dots.
+plot(mGittDelAnode - qGittDelAnode, V_anode_del,  'o', 'Color', colRedLight,      'MarkerFaceColor', colRedLight,      'MarkerSize', 1.5, 'LineStyle', 'none');
+plot(Q_anode_lith * 1000, V_anode_lith, 'o', 'Color', colDarkBlueLight, 'MarkerFaceColor', colDarkBlueLight, 'MarkerSize', 1.5, 'LineStyle', 'none');
 % Build legend-only proxy handles so the GITT entries show the combined style:
 % dashed line plus relaxation marker. The real relaxation markers remain on
 % the plotted data, but they are no longer separate legend entries.
-hLegGittDelAnode = plot(nan, nan, '--o', 'Color', colRed, 'LineWidth', 0.6, ...
-	'MarkerSize', 3, 'MarkerFaceColor', 'none');
-hLegGittLithAnode = plot(nan, nan, '--o', 'Color', colBlack, 'LineWidth', 0.6, ...
-	'MarkerSize', 3, 'MarkerFaceColor', 'none');
-xlabel('Throughput [mAh]', 'FontName', 'Times New Roman', 'FontSize', pubFontSizePt)
-ylabel('Voltage [V]', 'FontName', 'Times New Roman', 'FontSize', pubFontSizePt)
-grid on
-box on
-axAnodePub = gca;
+hLegGittDelAnode = plot(nan, nan, '--o', 'Color', colRedLight, 'LineWidth', 0.6, ...
+	'MarkerSize', 3, 'MarkerFaceColor', colRedLight);
+hLegGittLithAnode = plot(nan, nan, '--o', 'Color', colDarkBlueLight, 'LineWidth', 0.6, ...
+	'MarkerSize', 3, 'MarkerFaceColor', colDarkBlueLight);
+% Single shared x-label lives on the bottom (cathode) panel only; this top
+% panel keeps just its own y-label.
+ylabel(axAnodePub, 'Voltage [V]', 'FontName', 'Times New Roman', 'FontSize', pubFontSizePt)
+grid(axAnodePub, 'on')
+box(axAnodePub, 'on')
 axAnodePub.FontName = 'Times New Roman';
 axAnodePub.FontSize = pubFontSizePt;
 axAnodePub.LabelFontSizeMultiplier = 1.0;
 axAnodePub.TitleFontSizeMultiplier = 1.0;
 axAnodePub.LineWidth = 0.8;
-legend([hLegGittDelAnode, hLegGittLithAnode], {'GITT delithiation', 'GITT lithiation'}, ...
+xlim(axAnodePub, [0 5]);
+ylim(axAnodePub, [0 0.6]);
+legend(axAnodePub, [hLegGittDelAnode, hLegGittLithAnode], {'GITT delithiation', 'GITT lithiation'}, ...
 	'Location', 'north', 'Box', 'off', 'FontName', 'Times New Roman', 'FontSize', pubFontSizePt)
+% Baked-in panel letter (R-024), inside the axes at the top-left corner.
+text(axAnodePub, 0.02, 0.96, '(a)', 'Units', 'normalized', ...
+	'FontName', 'Times New Roman', 'FontSize', pubFontSizePt, ...
+	'HorizontalAlignment', 'left', 'VerticalAlignment', 'top');
 
 % NOTE: export moved to the end of the slow charge/discharge section below,
 % once the anode slow curves have been overlaid onto this same figure.
 scriptDir = fileparts(mfilename('fullpath'));
-saveDir   = fullfile(scriptDir, '..', 'pngs');
-if ~exist(saveDir, 'dir'); mkdir(saveDir); end
+saveDir   = getFigureOutputDir('extractOCPLines');
 
 %%
 % Store normalised SoC (capacity divided by Qmax_anode) in the exported table.
@@ -418,37 +444,60 @@ Vsave_cathode_lith = Vsave(:);
 fprintf('  Done. %d interpolated points, Q range [%.1f, %.1f] Ah\n', numel(Qsave_cathode_lith), min(Qsave_cathode_lith), max(Qsave_cathode_lith));
 
 %% Compare the interpolated cathode lithiation and delithiation for publication
-fprintf('[6/10] Cathode: plotting publication figure...\n');
+fprintf('[6/10] Cathode: plotting publication figure (panel b)...\n');
 % Compute the normalisation factor: maximum capacity across both profiles.
 Qmax_cathode = max([max(Qsave_cathode_delith); max(Qsave_cathode_lith)]);
-figCathodePub = figure('Color', 'w', 'Units', 'centimeters', 'Position', [2 2 pubFigWidthCm pubFigHeightCm]);
-figCathodePub.PaperPositionMode = 'auto';
+% Panel (b): bottom tile of the shared two-panel publication figure.
+figure(figOCPPub);
+axCathodePub = nexttile(tOCPPub, 2);
 % GITT voltage segments only (interpolated Delithiation/Lithiation lines removed);
 % x-axis converted from Ah to mAh (x1000); dashed to distinguish from the
 % solid slow charge/discharge lines overlaid later on this same figure.
 % Thinner LineWidth tightens MATLAB's dash/gap pattern (which scales with
 % LineWidth) so dashes sit closer together instead of leaving wide gaps.
-hVoltageFullDel = plot(throughput_cathode_del  * 1000, voltage_full_cathode_del,  '--', 'Color', colRed,   'LineWidth', 0.6);
+% Mirror the GITT delithiation x-axis about its own max (mAh) so the trace
+% reads right-to-left from max down to 0; lithiation keeps its original
+% left-to-right direction. Line and its boundary markers share one max so
+% both stay aligned after mirroring.
+xGittDelCathode = throughput_cathode_del * 1000;
+qGittDelCathode = Q_cathode_del * 1000;
+mGittDelCathode = max([xGittDelCathode; qGittDelCathode]);
+hVoltageFullDel = plot(mGittDelCathode - xGittDelCathode, voltage_full_cathode_del,  '--', 'Color', colRedLight,      'LineWidth', 0.6);
 hold on
-hVoltageFullLith = plot(throughput_cathode_lith * 1000, voltage_full_cathode_lith, '--', 'Color', colBlack, 'LineWidth', 0.6);
+hVoltageFullLith = plot(throughput_cathode_lith * 1000, voltage_full_cathode_lith, '--', 'Color', colDarkBlueLight, 'LineWidth', 0.6);
 % Overlay open circular markers at each GITT pulse boundary on the voltage line
 % (same boundary-point style as figs 4 and 10). Markers only (no connecting
 % line) so the dashed GITT trace stays intact; coloured to match their own
-% GITT line (red=delithiation, black=lithiation) rather than a third colour.
-hRelaxDel = plot(Q_cathode_del  * 1000, V_cathode_del,  'o', 'Color', colRed, 'MarkerSize', 1.5, 'LineStyle', 'none');
-hRelaxLith = plot(Q_cathode_lith * 1000, V_cathode_lith, 'o', 'Color', colBlack, 'MarkerSize', 1.5, 'LineStyle', 'none');
-grid on
-box on
-axCathodePub = gca;
+% GITT line using the same hue family as the slow curve, but at lower intensity.
+% Filled (MarkerFaceColor = edge colour) so the markers read as solid dots.
+hRelaxDel = plot(mGittDelCathode - qGittDelCathode, V_cathode_del,  'o', 'Color', colRedLight,      'MarkerFaceColor', colRedLight,      'MarkerSize', 1.5, 'LineStyle', 'none');
+hRelaxLith = plot(Q_cathode_lith * 1000, V_cathode_lith, 'o', 'Color', colDarkBlueLight, 'MarkerFaceColor', colDarkBlueLight, 'MarkerSize', 1.5, 'LineStyle', 'none');
+% Build legend-only proxy handles so the GITT entries show the combined style:
+% dashed line plus relaxation marker. The real relaxation markers remain on
+% the plotted data, but they are no longer separate legend entries.
+hLegGittDelCathode = plot(nan, nan, '--o', 'Color', colRedLight, 'LineWidth', 0.6, ...
+	'MarkerSize', 3, 'MarkerFaceColor', colRedLight);
+hLegGittLithCathode = plot(nan, nan, '--o', 'Color', colDarkBlueLight, 'LineWidth', 0.6, ...
+	'MarkerSize', 3, 'MarkerFaceColor', colDarkBlueLight);
+grid(axCathodePub, 'on')
+box(axCathodePub, 'on')
 axCathodePub.FontName = 'Times New Roman';
 axCathodePub.FontSize = pubFontSizePt;
 axCathodePub.LabelFontSizeMultiplier = 1.0;
 axCathodePub.TitleFontSizeMultiplier = 1.0;
 axCathodePub.LineWidth = 0.8;
+xlim(axCathodePub, [0 6.2]);
+ylim(axCathodePub, [2.5 4.5]);
 xlabel(axCathodePub, 'Throughput [mAh]', 'FontName', 'Times New Roman', 'FontSize', pubFontSizePt)
 ylabel(axCathodePub, 'Voltage [V]', 'FontName', 'Times New Roman', 'FontSize', pubFontSizePt)
-legend([hVoltageFullDel, hVoltageFullLith, hRelaxDel, hRelaxLith], {'GITT delithiation', 'GITT lithiation', 'Relaxation delithiation', 'Relaxation lithiation'}, ...
-	'Location', 'south', 'Box', 'off', 'FontName', 'Times New Roman', 'FontSize', pubFontSizePt)
+% No legend on panel (b) (user decision 2026-08-13): the single northeast
+% legend on panel (a) covers both panels. NOTE: do not call legend() on
+% axCathodePub at all - a lingering legend would auto-append data1/data2
+% entries when the slow curves are plotted later.
+% Baked-in panel letter (R-024), inside the axes at the top-left corner.
+text(axCathodePub, 0.02, 0.96, '(b)', 'Units', 'normalized', ...
+	'FontName', 'Times New Roman', 'FontSize', pubFontSizePt, ...
+	'HorizontalAlignment', 'left', 'VerticalAlignment', 'top');
 
 % NOTE: export moved to the end of the slow charge/discharge section below,
 % once the cathode slow curves have been overlaid onto this same figure.
@@ -484,64 +533,70 @@ T_anodeDischarge   = readtable(anodeDischargeCSV,   'VariableNamingRule', 'prese
 T_cathodeCharge    = readtable(cathodeChargeCSV,    'VariableNamingRule', 'preserve');
 T_cathodeDischarge = readtable(cathodeDischargeCSV, 'VariableNamingRule', 'preserve');
 
-% --- Anode: overlay slow charge/discharge onto the combined GITT figure (fig 6) ---
-% Combines figs 6 and 13 into a single plot: fig 6's dashed GITT lines plus
-% these solid slow charge/discharge lines, sharing the same mAh axis.
-figure(figAnodePub);
-hold on
+% --- Anode: overlay slow charge/discharge onto panel (a) of figOCPPub ---
+% Combines the anode dashed GITT lines with these solid slow charge/discharge
+% lines, sharing the same mAh axis.
+hold(axAnodePub, 'on')
 % Column 1 is specific capacity [mAh/g]; multiply by active mass [g] for mAh.
-% Distinct colours (R-017 palette) from the GITT lines above, so the two
-% delithiation/lithiation datasets never share a colour on this figure.
-hAnodeCharge    = plot(T_anodeCharge{:,1}    * massAnode_g, T_anodeCharge{:,2},    '-', 'Color', colGreen,   'LineWidth', 1.5);
-hAnodeDischarge = plot(T_anodeDischarge{:,1} * massAnode_g, T_anodeDischarge{:,2}, '-', 'Color', colDarkBlue, 'LineWidth', 1.5);
+% Slow delithiation uses the base publication red; slow lithiation keeps the
+% base publication dark blue so fig. 2 pairs each slow curve with its matching
+% dimmed GITT overlay.
+% Mirror the slow delithiation (charge) x-axis about its own max (mAh),
+% independently from the GITT delithiation mirror above; discharge/lithiation
+% keeps its original direction.
+xSlowDelAnode = T_anodeCharge{:,1} * massAnode_g;
+mSlowDelAnode = max(xSlowDelAnode);
+hAnodeCharge    = plot(axAnodePub, mSlowDelAnode - xSlowDelAnode, T_anodeCharge{:,2},    '-', 'Color', colRed,      'LineWidth', 1.0);
+hAnodeDischarge = plot(axAnodePub, T_anodeDischarge{:,1} * massAnode_g, T_anodeDischarge{:,2}, '-', 'Color', colDarkBlue, 'LineWidth', 1.0);
 % Draw order requirement: continuous lines behind dashed lines, markers on top.
 % These solid lines were added last, so push them to the bottom of the stack.
 uistack(hAnodeDischarge, 'bottom');
 uistack(hAnodeCharge, 'bottom');
 % Keep relaxation markers on the data, but fold the marker cue into the GITT
 % legend samples so the legend has no standalone "Relaxation" entries.
-legend([hLegGittDelAnode, hLegGittLithAnode, hAnodeCharge, hAnodeDischarge], ...
+% User decision 2026-08-13: one legend for the whole figure, on the anode
+% panel (a), northeast; the cathode panel (b) legend is removed (same four
+% trace styles apply to both panels).
+legend(axAnodePub, [hLegGittDelAnode, hLegGittLithAnode, hAnodeCharge, hAnodeDischarge], ...
 	{'GITT delithiation', 'GITT lithiation', 'Slow delithiation', 'Slow lithiation'}, ...
-	'Location', 'north', 'Box', 'off', 'FontName', 'Times New Roman', 'FontSize', pubFontSizePt)
+	'Location', 'northeast', 'Box', 'off', 'FontName', 'Times New Roman', 'FontSize', pubFontSizePt)
 
-% Export the combined figure (single Anode.pdf now covers figs 6+13).
-drawnow;
-pdfFileAnode = fullfile(saveDir, 'Anode.pdf');
-exportgraphics(figAnodePub, pdfFileAnode, 'ContentType', 'vector');
-fprintf('Anode publication PDF saved: %s\n', pdfFileAnode);
-
-% --- Cathode: overlay slow charge/discharge onto the combined GITT figure (fig 12) ---
-% Combines figs 12 and 14 into a single plot: fig 12's dashed GITT lines plus
-% these solid slow charge/discharge lines, sharing the same mAh axis.
-figure(figCathodePub);
-hold on
+% --- Cathode: overlay slow charge/discharge onto panel (b) of figOCPPub ---
+% Combines the cathode dashed GITT lines with these solid slow charge/discharge
+% lines, sharing the same mAh axis.
+hold(axCathodePub, 'on')
 % Column 1 is specific capacity [mAh/g]; multiply by active mass [g] for mAh.
-% Distinct colours (R-017 palette) from the GITT lines above, so the two
-% delithiation/lithiation datasets never share a colour on this figure.
-hCathodeCharge    = plot(T_cathodeCharge{:,1}    * massCathode_g, T_cathodeCharge{:,2},    '-', 'Color', colGreen,   'LineWidth', 1.5);
-hCathodeDischarge = plot(T_cathodeDischarge{:,1} * massCathode_g, T_cathodeDischarge{:,2}, '-', 'Color', colDarkBlue, 'LineWidth', 1.5);
+% Slow delithiation uses the base publication red; slow lithiation keeps the
+% base publication dark blue, matching fig. 2's colour pairing.
+% Mirror the slow delithiation (charge) x-axis about its own max (mAh),
+% independently from the GITT delithiation mirror above; discharge/lithiation
+% keeps its original direction.
+xSlowDelCathode = T_cathodeCharge{:,1} * massCathode_g;
+mSlowDelCathode = max(xSlowDelCathode);
+hCathodeCharge    = plot(axCathodePub, mSlowDelCathode - xSlowDelCathode, T_cathodeCharge{:,2},    '-', 'Color', colRed,      'LineWidth', 1.0);
+hCathodeDischarge = plot(axCathodePub, T_cathodeDischarge{:,1} * massCathode_g, T_cathodeDischarge{:,2}, '-', 'Color', colDarkBlue, 'LineWidth', 1.0);
 % Draw order requirement: continuous lines behind dashed lines, markers on top.
 % These solid lines were added last, so push them to the bottom of the stack.
 uistack(hCathodeDischarge, 'bottom');
 uistack(hCathodeCharge, 'bottom');
-legend([hVoltageFullDel, hVoltageFullLith, hRelaxDel, hRelaxLith, hCathodeCharge, hCathodeDischarge], ...
-	{'GITT delithiation', 'GITT lithiation', 'Relaxation delithiation', 'Relaxation lithiation', 'Slow delithiation', 'Slow lithiation'}, ...
-	'Location', 'south', 'Box', 'off', 'FontName', 'Times New Roman', 'FontSize', pubFontSizePt)
+% Cathode legend removed (user decision 2026-08-13): the single legend on
+% panel (a) covers both panels.
 
-% Export the combined figure (single Cathode.pdf now covers figs 12+14).
+% Export the combined two-panel figure as ONE vector PDF (R-024/R-018), plus a
+% PNG snapshot at the same stem.
 drawnow;
-pdfFileCathode = fullfile(saveDir, 'Cathode.pdf');
-exportgraphics(figCathodePub, pdfFileCathode, 'ContentType', 'vector');
-fprintf('Cathode publication PDF saved: %s\n', pdfFileCathode);
+pdfFileOCP = fullfile(saveDir, 'OCP_HalfCell.pdf');
+exportgraphics(figOCPPub, pdfFileOCP, 'ContentType', 'vector');
+fprintf('OCP half-cell publication PDF saved: %s\n', pdfFileOCP);
+pngFileOCP = fullfile(saveDir, 'OCP_HalfCell.png');
+exportgraphics(figOCPPub, pngFileOCP, 'Resolution', 300);
+fprintf('OCP half-cell publication PNG saved: %s\n', pngFileOCP);
 
 %% Save all open figures to PNG
-fprintf('[9/10] Saving figures to pngs/ folder...\n');
+fprintf('[9/10] Saving figures to the R-022 output directory...\n');
 % Use mfilename so the output folder is always relative to this script,
 % not to the MATLAB current working directory.
-pngDir = fullfile(fileparts(mfilename('fullpath')), '..', 'pngs');
-if ~exist(pngDir, 'dir')
-	mkdir(pngDir);
-end
+pngDir = getFigureOutputDir('extractOCPLines');
 figHandles = findall(0, 'Type', 'figure');
 figNumbers = arrayfun(@(fig) fig.Number, figHandles);
 [~, sortOrder] = sort(figNumbers);

@@ -6,8 +6,8 @@
 % Usage:   Update the variable 'eisFolder' with the path to the EIS experiments
 %          and run the script (no arguments).
 %
-% Produces: Nyquist diagram figures; any saved image/vector outputs are written
-%           to ../pngs (R-022).
+% Produces: Stage-qualified Nyquist PNG figures in this script's R-022
+%           `Figures/matlab/PlotEISData/` output directory.
 %
 % Author: Robinson Medina
 % Date: 2026-01-22   (created)
@@ -16,7 +16,11 @@
 %% Instructions
 % update the variable 'eisFolder' with the path to the EIS experiments
 
-clear;
+% Allow an external driver to preselect the stage folder via
+% eisFolderOverride before run(...); the guard survives the clear below
+% (todo #093).
+if exist('eisFolderOverride', 'var'); keepEisFolderOverride = eisFolderOverride; end
+clearvars -except keepEisFolderOverride;
 close all;
 clc;
 % Resolve the current script folder so path setup is independent of cwd.
@@ -32,6 +36,10 @@ end
 % 3_Characterization/4_Ageing. Change this one line to retarget the script.
 DataRoot  = '\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot';
 eisFolder = fullfile(DataRoot, '4_Ageing', 'EIS_data', '3_EOL_EIS');
+if exist('keepEisFolderOverride', 'var'); eisFolder = keepEisFolderOverride; end
+% Publication figures never write into the read-only ZenodoRoot tree (R-001);
+% Nyquist PNGs go to this entry script's R-022 output directory.
+pngsDir = getFigureOutputDir('PlotEISData');
 
 
 
@@ -97,10 +105,13 @@ for fileIdx = 1:length(csvFiles)
 
     %% Generate Nyquist Diagram
     [~, fileBaseName, ~] = fileparts(filename);
-    figTitle = sprintf('Nyquist Diagram: - %s', fileBaseName);
+    % Use the life-stage folder as part of the display title and filename so
+    % repeated cell files at BoL, MoL, and EoL cannot overwrite each other.
+    [~, stageName] = fileparts(eisFolder);
+    figTitle = sprintf('Nyquist Diagram: - %s (%s)', fileBaseName, stageName);
 
-    % Create save path for the Nyquist diagram (save in EIS folder)
-    saveFilename = fullfile(eisFolder, [fileBaseName '_NyquistPlot.png']);
+    % Save in the R-022 script-owned directory, never in the read-only EIS data folder.
+    saveFilename = fullfile(pngsDir, [stageName '_' fileBaseName '_NyquistPlot.png']);
 
     % Call the plotNyquistDiagram function
     fig = plotNyquistDiagram(data, figTitle, saveFilename, 12000);
@@ -115,5 +126,5 @@ end
 fprintf('\n########################################\n');
 fprintf('Nyquist analysis complete!\n');
 fprintf('Processed subfolders with EIS data\n');
-fprintf('Nyquist diagrams saved to respective EIS folders\n');
+fprintf('Nyquist diagrams saved to: %s\n', pngsDir);
 fprintf('########################################\n');

@@ -4,6 +4,11 @@ Naming convention: **`Cell_<n>`** — just the physical cell number `n`, no
 campaign letter or temperature prefix. The old channel code (`A0x_yy`) is kept
 here only as a crosswalk; the channel was internal.
 
+Cell numbers verified against the `ZenodoRoot` folder names
+(`4_Ageing/{Calendar,Cyclic}_ageing_data/<code>_Cell_<n>`) and the `CellNum` /
+`CellLabel` columns of `OverviewCapacityData_36cell.csv` and
+`OverviewCapacityData_5cell.csv`, which are the authoritative source.
+
 ## 0°C
 | Channel | Old code | New ID | Type | DoD (V-based) | Average SoC | Charge | Discharge | Effect |
 |---|---|---|---|---|---|---|---|---|
@@ -47,22 +52,22 @@ and reused to run the three 25 °C consistency replicates (Cell_56, Cell_89, Cel
 | 5 | A03_05 | Cell_40 | CC cycle | 50%: (3.706V-4.35V) | 0.75 | 0.5 | 0.5 | Monitor effect of avg SoC |
 | 6 | A03_06 | Cell_1 | CC cycle | 50%: (2.75V-3.706V) | 0.25 | 0.5 | 0.5 | Monitor effect of avg SoC |
 | 7 | A03_07 | Cell_3 | CC cycle | 50%: (3.587V-3.999V) | 0.5 | 0.5 | 0.5 | Monitor effect of avg SoC |
-| 8 | A03_08 | Cell_8 | CC cycle | 100%: (2.75V-4.35V) | 0.5 | 1 | 0.5 | Monitor effect of C-rate |
-| 9 | A03_09 | Cell_9 | CC cycle | 100%: (2.75V-4.45V) | 0.5 | 1 | 0.5 | Monitor effect of high voltage levels |
+| 8 | A03_08 | Cell_9 | CC cycle | 100%: (2.75V-4.35V) | 0.5 | 1 | 0.5 | Monitor effect of C-rate |
+| 9 | A03_09 | Cell_5 | CC cycle | 100%: (2.75V-4.45V) | 0.5 | 1 | 0.5 | Monitor effect of high voltage levels |
 | 10 | A03_10 | Cell_22 | CCCV charge & CC cycle | 100%: (2.75V-4.45V) | 0.5 | 1 | 0.5 | Monitor effect of high voltage levels (torn down post-mortem) |
-| 11 | A03_11 | Cell_47 | CC cycle | 100%: (2.75V-4.35V) | 0.5 | 0.5 | 1 | Monitor effect of C-rate (asymmetric) |
-| 12 | A03_12 | Cell_5 | CC cycle | 100%: (2.75V-4.35V) | 0.5 | 1 | 1 | Monitor effect of C-rate |
+| 11 | A03_11 | Cell_8 | CC cycle | 100%: (2.75V-4.35V) | 0.5 | 0.5 | 1 | Monitor effect of C-rate (asymmetric) |
+| 12 | A03_12 | Cell_47 | CC cycle | 100%: (2.75V-4.35V) | 0.5 | 1 | 1 | Monitor effect of C-rate |
 | 13 | A03_13 | Cell_17 | Load cycle | | 0.5 | | | Validation (stationary-storage profile) |
 | 14 | A03_14 | Cell_25 | Drive cycle | 100%: (2.75V-4.35V) | 0.5 | 0.5 | | Validation (automotive profile) |
 
 ## 0°C – 45°C (Dynamic Temperature)
 | Channel | Old code | New ID | Type | DoD (V-based) | Average SoC | Charge | Discharge | Effect |
 |---|---|---|---|---|---|---|---|---|
-| 1 | A04_01 | Cell_50 | CC cycle | 100%: (2.75V-4.35V) | 0.5 | 0.5 | 0.5 | Reference conditions |
-| 2 | A04_02 | Cell_51 | Load cycle | | 0.5 | | | Validation (stationary-storage profile) |
-| 3 | A04_03 | Cell_52 | Drive cycle | 100%: (2.75V-4.35V) | 0.5 | 0.5 | | Validation (automotive profile) |
-| 4 | A04_04 | Cell_53 | Mixed: auto 1–4 m, stat 5–6 m, auto 7–8 m, stat 9–12 m | 100%: (2.75V-4.35V) | 0.5 | 0.5 | | Validation |
-| 5 | A04_05 | Cell_54 | Mixed: auto 1–6 m, stat 7–12 m | 100%: (2.75V-4.35V) | 0.5 | 0.5 | | Validation |
+| 1 | A04_01 | Cell_49 | CC cycle | 100%: (2.75V-4.35V) | 0.5 | 0.5 | 0.5 | Reference conditions |
+| 2 | A04_02 | Cell_50 | Load cycle | | 0.5 | | | Validation (stationary-storage profile) |
+| 3 | A04_03 | Cell_53 | Drive cycle | 100%: (2.75V-4.35V) | 0.5 | 0.5 | | Validation (automotive profile) |
+| 4 | A04_04 | Cell_64 | Mixed: auto 1–4 m, stat 5–6 m, auto 7–8 m, stat 9–12 m | 100%: (2.75V-4.35V) | 0.5 | 0.5 | | Validation |
+| 5 | A04_05 | Cell_70 | Mixed: auto 1–6 m, stat 7–12 m | 100%: (2.75V-4.35V) | 0.5 | 0.5 | | Validation |
 
 ## Test Parameters Legend
 

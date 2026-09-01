@@ -12,8 +12,10 @@
 % the cross-cell CSV tables 'OverviewResistanceData_<N>cell.csv' /
 % 'OverviewCapacityData_<N>cell.csv' (consumed by the overview plotters).
 %
-% Inputs:  cyclic/calendar ageing CSVs under DesiredFolder.
-% Outputs: figures in ../pngs and Overview*Data_*.csv next to the data.
+% Inputs:  cyclic/calendar ageing CSVs under DesiredFolder (read-only, R-001).
+% Outputs: figures AND Overview*Data_*.csv in ../pngs (R-022). The dataset's
+%          own copies of the Overview CSVs are refreshed by a deliberate,
+%          reviewed copy from ../pngs - never written in place.
 %
 % Author: Feye Hoekstra, Róbinson Medina 
 % Updated: 2025-11-25
@@ -25,25 +27,38 @@
 % and the location 'DesiredFolder' and comment the main for loop and the
 % line '    cellNum = Folders(celNumIndx).name;' inside the foor loop
 
-clear;
+% Allow an external driver (e.g. a verification-run script) to preselect the
+% cell/folder via cellNumOverride/folderOverride before run(...); the guards
+% survive the clear below (todo #092).
+if exist('cellNumOverride', 'var'); keepCellOverride = cellNumOverride; end
+if exist('folderOverride', 'var'); keepFolderOverride = folderOverride; end
+clearvars -except keepCellOverride keepFolderOverride;
 % close all;
 clc;
 % Resolve Functions path relative to this script so it works from any cwd.
 scriptDir = fileparts(mfilename('fullpath'));
 addpath(fullfile(scriptDir, '..', '..', 'Functions'))
+% Publication outputs never write into the read-only ZenodoRoot tree (R-001);
+% Keep generated diagnostic artifacts together in this entry script's R-022 directory.
+journalPngsDir = getFigureOutputDir('ExtractAgeingData');
 
 
 %% Configuration
-DesiredFolder = '\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\Cyclic_ageing_data';
-% DesiredFolder = '\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot\Calendar_ageing_data';
-Folders = dir([DesiredFolder '\*_Cell_*']);
-% cellNum = 'A3.13_Cell_17';
- % cellNum = 'A3.11_Cell_8'; % ligth A3 file
-% cellNum = 'A3.12_Cell_47';
- cellNum = 'A2.08_Cell_35'; % light A2 file
-% cellNum = 'A2.02_Cell_56'; % light A2 file
-% cellNum = 'A2.07_Cell_34';
-cellNum = 'A1.05_Cell_68';
+% Single configurable dataset root (Zenodo layout, todo #055). All reads are
+% relative to DataRoot; the script never writes into the data tree (R-001).
+DataRoot = '\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot';
+DesiredFolder = fullfile(DataRoot, '4_Ageing', 'Cyclic_ageing_data');
+% DesiredFolder = fullfile(DataRoot, '4_Ageing', 'Calendar_ageing_data');
+if exist('keepFolderOverride', 'var'); DesiredFolder = keepFolderOverride; end
+Folders = dir([DesiredFolder '\Cell_*']);
+% cellNum = 'Cell_17';
+ % cellNum = 'Cell_8'; % ligth A3 file
+% cellNum = 'Cell_47';
+ cellNum = 'Cell_35'; % light A2 file
+% cellNum = 'Cell_56'; % light A2 file
+% cellNum = 'Cell_34';
+cellNum = 'Cell_68';
+if exist('keepCellOverride', 'var'); cellNum = keepCellOverride; end
 
 % Load processed battery test data from .mat file
 
@@ -91,7 +106,7 @@ allDQdVData = {};celNumIndx=1;
     plotOverviewData(timeWithGaps, current, voltage, cellTemp, chamberTemp, cumulative_integral, cellNum, cellLabel);
     figOverview = gcf;
 
-    % %% Extract Reference Performance Cycle (RPC) only valid for cell A1.05_Cell_68
+    % %% Extract Reference Performance Cycle (RPC) only valid for cell Cell_68
     % % Define the publication zoom window for the Reference Performance Cycle view
     % referenceCycleStartTime = datetime(2024, 4, 23, 5, 51, 16);
     % referenceCycleEndTime = datetime(2024, 4, 30, 04, 55, 12);
@@ -126,8 +141,9 @@ allDQdVData = {};celNumIndx=1;
     [checkupCapacityTimeStamp, checkupCapacity_Ah,checkupCapacityFEC,legends,CheckUpOCV_V,dQdV_AperVs,SegmentCapacity_Ah,CheckUpSoC] = analyzeCheckupDischarge(segments, selectedTime, selectedVoltage, selectedCurrent, selectedTimeS, windowSize, cellNum, cellLabel);
     figCheckupDischarge = gcf;
 
-    % Export OCP discharge data (SoC-OCV-capacity) to CSV
-    exportOCPDischarge(savePath, cellNum, CheckUpSoC, CheckUpOCV_V, checkupCapacity_Ah, checkupCapacityTimeStamp);
+    % Export OCP discharge data (SoC-OCV-capacity) to CSV (R-022: pngs/, not
+    % back into the read-only source folder `savePath` would point to).
+    exportOCPDischarge(journalPngsDir, cellNum, CheckUpSoC, CheckUpOCV_V, checkupCapacity_Ah, checkupCapacityTimeStamp);
 
     %% Extract Resistance Values
     % Calculate internal resistance from voltage drop during current pulses
@@ -152,18 +168,12 @@ allDQdVData = {};celNumIndx=1;
     figDVdt = gcf;
 
     %% Save All Figures
-    % Save all figures at the end of the loop iteration
-    PNGFiles = dir([DesiredFolder,  '\',cellNum, '\*.png']);% deletes current files
-    for FileIndx = 1:length(PNGFiles)
-        FileToDelete = [DesiredFolder,  '\',cellNum, '\', PNGFiles(FileIndx).name];
-        delete(FileToDelete);
-    end
+    % Save all figures at the end of the loop iteration.
+    % (The data folders are read-only per R-001; nothing is deleted or
+    % written there. Outputs go to JournalScripts/pngs/ per R-022.)
     fprintf('\nSaving figures...\n');
     % Save all figures to JournalScripts/pngs/ so they are co-located with
     % the other journal publication figures rather than in the data folders.
-    scriptDir_ext = fileparts(mfilename('fullpath'));
-    journalPngsDir = fullfile(scriptDir_ext, '..', 'pngs');
-    if ~exist(journalPngsDir, 'dir'); mkdir(journalPngsDir); end
     saveas(figOverview,        fullfile(journalPngsDir, [cellNum '_Overview.png']));
     saveas(figCheckupDischarge,fullfile(journalPngsDir, [cellNum '_CheckupDischarge.png']));
     saveas(figResistance,      fullfile(journalPngsDir, [cellNum '_Resistance.png']));
@@ -172,7 +182,7 @@ allDQdVData = {};celNumIndx=1;
 
 
     fprintf('\n========================================\n');
-    fprintf('All figures saved to: %s\n', savePath);
+    fprintf('All figures saved to: %s\n', journalPngsDir);
     fprintf('========================================\n');
 
     % Accumulate resistance data (skip NaN timestamps)
@@ -208,23 +218,29 @@ fprintf('\n========================================\n');
 fprintf('Saving data tables to CSV files...\n');
 fprintf('========================================\n');
 
+% The Overview CSVs are written to JournalScripts/pngs/ (R-001: the data tree
+% is read-only). The copies shipped inside the dataset
+% (4_Ageing/*_ageing_data/Overview*Data_*.csv) are dataset content, consumed
+% by the overview plotters; refresh them by DELIBERATELY copying the newly
+% generated tables from pngs/ after review.
+
 % Create and save Resistance table
 if ~isempty(allResistanceData)
     resistanceTable = cell2table(allResistanceData, 'VariableNames', {'CellNum', 'CellLabel', 'CheckupResistanceTimeStamp', 'CheckupResistance_Ohm', 'CheckupResistanceFEC'});
-    writetable(resistanceTable, fullfile(DesiredFolder, ['OverviewResistanceData_' num2str(celNumIndx) 'cell.csv']));
-    fprintf('Resistance data saved to: %s\n', fullfile(DesiredFolder, ['OverviewResistanceData_' num2str(celNumIndx) 'cell.csv']));
+    writetable(resistanceTable, fullfile(journalPngsDir, ['OverviewResistanceData_' num2str(celNumIndx) 'cell.csv']));
+    fprintf('Resistance data saved to: %s\n', fullfile(journalPngsDir, ['OverviewResistanceData_' num2str(celNumIndx) 'cell.csv']));
 end
 
 
 % Create and save Capacity table
 if ~isempty(allCapacityData)
     capacityTable = cell2table(allCapacityData, 'VariableNames', {'CellNum', 'CellLabel', 'CheckupCapacityTimeStamp', 'CheckupCapacity_Ah', 'CheckupCapacityFEC'});
-    writetable(capacityTable, fullfile(DesiredFolder, ['OverviewCapacityData_' num2str(celNumIndx) 'cell.csv']));
-    fprintf('Capacity data saved to: %s\n', fullfile(DesiredFolder, ['OverviewCapacityData_' num2str(celNumIndx) 'cell.csv']));
+    writetable(capacityTable, fullfile(journalPngsDir, ['OverviewCapacityData_' num2str(celNumIndx) 'cell.csv']));
+    fprintf('Capacity data saved to: %s\n', fullfile(journalPngsDir, ['OverviewCapacityData_' num2str(celNumIndx) 'cell.csv']));
 end
 
 
 
 fprintf('\n========================================\n');
-fprintf('All tables saved to: %s\n', DesiredFolder);
+fprintf('All tables saved to: %s\n', journalPngsDir);
 fprintf('========================================\n');

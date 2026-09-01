@@ -18,7 +18,8 @@ The scripts enable analysis of:
 ├── requirements.txt              # Python dependencies
 ├── fileDependencies.txt          # List of function dependencies
 │
-├── matlab_scripts/               # MATLAB analysis scripts
+├── matlab_scripts/               # MATLAB analysis scripts (LEADING implementation)
+│   ├── MakeManuscriptFigures.m    # ONE-SHOT RUNNER: 9 manuscript groups + all-cell overview/EIS regeneration
 │   ├── ExtractAgeingData.m        # Main per-cell ageing pipeline (multi-figure + Overview CSV export)
 │   ├── PlotCellSummary.m          # One-page A4 per-cell publication summary (Figure 3)
 │   ├── PlotCharacterizationData.m # Combined characterisation figure (characterization_combined.pdf)
@@ -55,13 +56,12 @@ The scripts enable analysis of:
 │   ├── getCellLabel.m                # Cell-ID -> human-readable label
 │   └── ...                           # Other shared helpers
 │
-├── python_scripts/               # Python analysis scripts
-│   ├── PlotAgeingData.py         # Python version of ageing analysis
-│   ├── PlotCharacterizationData.py # Python characterization visualization
-│   ├── PlotEISData.py            # Python EIS visualization
+├── python_scripts/               # Python SHADOW implementation (see Language policy)
+│   ├── PlotCharacterizationData_Cell15.py # Python characterization visualization
+│   ├── PlotEISData.py            # Python EIS visualization (characterisation EIS)
 │   ├── ExtractAgeingData.py      # Python data extraction
-│   ├── PlotCapacityDegradationOverview.py # Python capacity trends
-│   ├── PlotResistanceIncreaseOverview.py  # Python resistance trends
+│   ├── PlotCapacityDegradation_detailed.py # Python capacity trends
+│   ├── PlotResistanceIncrease_Detailed.py  # Python resistance trends
 │   └── extractOCPLines.py        # Python OCP line extraction
 │
 ├── docs/                         # Documentation and project tracking
@@ -69,9 +69,16 @@ The scripts enable analysis of:
 │   ├── done.md                   # Completed work log
 │   ├── todo.md                   # Task backlog and ideas
 │   ├── assumptions.md            # Analysis assumptions
-│   └── figures/                  # Generated figures (publication-ready)
+│   └── figure-migration-dry-run.csv # Reviewed SHA-256 migration inventory
 │
-└── pngs/                         # PNG output directory
+├── Figures/                      # R-022 generated outputs, partitioned by language and script
+│   ├── matlab/<script-stem>/     # MATLAB-owned output directory
+│   └── python/<script-stem>/     # Python-owned output directory
+│
+├── tools/                        # Project maintenance utilities
+│   └── New-FigureMigrationManifest.ps1 # No-move manifest generator
+│
+└── pngs/                         # Legacy-only historical artifacts; no new output
 ```
 
 ## Ageing Test Plan
@@ -136,48 +143,51 @@ curves (`Anode.pdf`, `Cathode.pdf`).
 ### MATLAB
 - MATLAB R2022a or later
 
+## Language policy (2026-08-12)
+
+**MATLAB is the leading implementation** - every figure in the manuscript was
+produced by the MATLAB pipeline. The Python side is a **shadow
+implementation**: it reproduces the same analyses from the same data with
+native matplotlib appearance (pixel parity with MATLAB is explicitly not a
+goal) and is completed after the MATLAB side is stable (see todo #075).
+
 ## Usage
 
-### Python
-
-```bash
-# Navigate to python_scripts directory
-cd python_scripts
-
-# Run ageing data analysis
-python PlotAgeingData.py
-
-# Run characterization data visualization
-python PlotCharacterizationData.py
-
-# Run EIS data visualization
-python PlotEISData.py
-
-# Run OCP line extraction
-python extractOCPLines.py
-```
-
-### MATLAB
+### MATLAB - reproduce all manuscript figures (recommended entry point)
 
 ```matlab
-% Add paths (from MATLAB command window)
-addpath(genpath('..\'));  % Add current project to path
-
-% Run the main per-cell ageing pipeline
 cd matlab_scripts
-ExtractAgeingData
+MakeManuscriptFigures    % runs 11 stages, including all cyclic/calendar cell overviews and ageing EIS
+```
 
-% Build the one-page A4 per-cell summary (Figure 3)
-PlotCellSummary
+or headless:
 
-% Run characterization data visualization
-PlotCharacterizationData
+```bash
+matlab -batch "cd matlab_scripts; MakeManuscriptFigures"
+```
 
-% Run EIS data visualization
-PlotEISData
+Individual generators can also be run directly, e.g.:
 
-% Run OCP line extraction
-extractOCPLines
+```matlab
+cd matlab_scripts
+ExtractAgeingData          % per-cell ageing pipeline + Overview CSV tables
+PlotCellSummary            % one-page A4 per-cell summary
+PlotCharacterizationData   % combined characterization figure
+PlotCharacterizationResults% per-cell OCV + EIS result figures (cellNumOverride supported)
+PlotAgeingCombinedOverview % CalendarAgeing / CyclicAgeing overview figures
+PlotLiStrippingMethods     % Li-stripping methods figure
+PlotReferencePerformanceCycleFigure % RPT/RPC figure
+extractOCPLines            % half-cell OCP figures
+```
+
+### Python (shadow)
+
+```bash
+cd python_scripts
+python PlotCharacterizationData_Cell15.py
+python PlotEISData.py
+python extractOCPLines.py
+python ExtractAgeingData.py
 ```
 
 ## Main Scripts
@@ -188,7 +198,20 @@ Loads battery cell test data, processes time gaps, calculates cumulative charge 
 - Resistance calculations
 - dV/dt analysis after charging
 
-It exports per-cell figures to `pngs/` and the cross-cell `OverviewCapacityData_*.csv` / `OverviewResistanceData_*.csv` tables consumed by the overview plotters.
+It exports per-cell figures and the cross-cell `OverviewCapacityData_*.csv` /
+`OverviewResistanceData_*.csv` tables to
+`Figures/<language>/ExtractAgeingData/`, where `<language>` is `matlab` or
+`python` for the selected entry point.
+
+> **Manual review - Wave 7 Stage A figure snapshot (2026-08-21).** The full 41-cell Wave 7
+> Stage A run saved its 205 per-cell diagnostic figures (each cell's `_Overview.png`,
+> `_CheckupDischarge.png`, `_Resistance.png`, `_CapacityResistanceTrend.png`,
+> `_dVdtAnalysis.png`) to `pngs/`. Because `pngs/` is git-ignored and gets overwritten by any
+> future `ExtractAgeingData` re-run, an immutable copy of those 205 PNGs is archived for
+> hand-checking at:
+> `verification_runs/2026-08-20_wave7/Stage_A_figures/`
+> (the 4 accumulated `Overview*Data_*cell.csv` tables and the per-stage status CSVs live one
+> level up in `verification_runs/2026-08-20_wave7/`).
 
 ### `PlotCharacterizationData`
 Visualizes initial characterization data from CSV files. Generates figures with multiple subplots for each data column.
@@ -214,7 +237,9 @@ Builds the one-page A4 per-cell publication summary (Figure 3). The A4 portrait 
 Each downstream analysis is colour-linked to its source time window via a per-checkup
 `parula` colour thread (semi-transparent bands on the top I/V/T panels). The script calls
 shared `../Functions/` helpers only; it defines no local functions. It exports
-`<cellNum>_Summary.{png,pdf}` and a standalone `EISComparison.{pdf,png}` to `pngs/`.
+`<cellNum>_Summary.{png,pdf}` and a standalone `EISComparison.{pdf,png}` to
+`Figures/<language>/PlotCellSummary/`, where `<language>` is `matlab` or
+`python` for the selected entry point.
 
 ## Software Architecture: Code Reuse (`PlotCellSummary.m` vs `ExtractAgeingData.m`)
 
@@ -225,11 +250,14 @@ This section documents what is shared between the two main per-cell MATLAB drive
 ### High-level view
 
 The two per-cell drivers are thin top-level scripts on top of a common `../Functions/`
-helper library. As of the 2026-07-28 refactor, **every** helper lives in its own file under
-`Functions/`: `PlotCellSummary.m` contains no local functions, and the two formulas that used
-to be copy-pasted between the drivers (the CSV data-ingestion preamble and the per-checkup
-OCV/Q/dQ-dV math) are now single-source helpers (`loadAndPreprocessAgeingCsv`,
-`computeCheckupCurves`).
+helper library. As of the 2026-07-28 refactor, the goal is that **every** helper lives in
+its own file under `Functions/`; the two formulas that used to be copy-pasted between the
+drivers (the CSV data-ingestion preamble and the per-checkup OCV/Q/dQ-dV math) are
+single-source helpers (`loadAndPreprocessAgeingCsv`, `computeCheckupCurves`).
+(Correction 2026-08-12: `PlotCellSummary.m` still carries local copies of
+`computeStrippingMetric`/`computeStrippingAlpha` that shadow their identical `Functions/`
+counterparts - tracked for removal as todo #074; its local `extractDVdtSegmentsAll` copy
+was removed on 2026-08-12 so the Functions version runs.)
 
 The remaining main scripts are **standalone drivers**: they do not call the shared
 `Functions/` ageing helpers. The two cross-cell overview scripts instead consume the
