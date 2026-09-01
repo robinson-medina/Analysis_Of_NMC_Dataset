@@ -37,10 +37,16 @@ from matplotlib.lines import Line2D
 from scipy.integrate import cumulative_trapezoid
 from scipy.interpolate import PchipInterpolator
 
-# Register the shared resolver before importing it from the sibling Functions directory.
-FUNCTIONS_DIR = Path(__file__).resolve().parents[2] / "Functions"
-if str(FUNCTIONS_DIR) not in sys.path:
-    sys.path.append(str(FUNCTIONS_DIR))
+# Register the shared resolver from either the JournalScripts staging layout or the public layout.
+SCRIPT_DIR = Path(__file__).resolve().parent
+FUNCTIONS_CANDIDATES = (SCRIPT_DIR.parent.parent / "Functions", SCRIPT_DIR.parent / "Functions")
+for FUNCTIONS_DIR in FUNCTIONS_CANDIDATES:
+    if FUNCTIONS_DIR.exists():
+        if str(FUNCTIONS_DIR) not in sys.path:
+            sys.path.append(str(FUNCTIONS_DIR))
+        break
+else:
+    raise FileNotFoundError(f"Shared Functions folder not found from {SCRIPT_DIR}")
 
 from get_figure_output_dir import get_figure_output_dir  # noqa: E402
 

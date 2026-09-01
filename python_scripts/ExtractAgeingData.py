@@ -19,17 +19,15 @@ import sys
 import os
 from pathlib import Path
 
-# Add functions directory to path (check both locations)
-# Original location: Functions/ lives at BatteryTestHardware_ChromaAgeing/Functions,
-# i.e. one level above JournalScripts (sibling of JournalScripts), not inside it.
-functions_dir_parent = Path(__file__).parent.parent.parent / 'Functions'
-# New location: same folder as script
-functions_dir_local = Path(__file__).parent / 'Functions'
+# Add Functions/ from either the JournalScripts staging layout or the public repository layout.
+script_dir = Path(__file__).resolve().parent
+functions_dir_parent = script_dir.parent.parent / 'Functions'
+functions_dir_public = script_dir.parent / 'Functions'
 
 def load_helpers() -> dict[str, callable]:
     """Load required helper functions dynamically and report missing modules clearly."""
 
-    for functions_dir in [functions_dir_local, functions_dir_parent]:
+    for functions_dir in [functions_dir_parent, functions_dir_public]:
         if functions_dir.exists() and str(functions_dir) not in sys.path:
             sys.path.append(str(functions_dir))
 
@@ -59,7 +57,7 @@ def load_helpers() -> dict[str, callable]:
         for missing_helper in missing_helpers:
             print(f"  - {missing_helper}")
         print("Expected helper directory locations:")
-        print(f"  - {functions_dir_local}")
+        print(f"  - {functions_dir_public}")
         print(f"  - {functions_dir_parent}")
         return {}
 

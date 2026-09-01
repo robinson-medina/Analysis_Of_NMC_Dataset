@@ -1,26 +1,31 @@
-% Summary: Extract OCP-like lookup lines from GITT datasets for anode/cathode,
-% then scale/interpolate and merge each half-cell GITT profile with its slow
-% charge/discharge curve into one two-panel publication figure: panel (a) is
-% the graphite anode, panel (b) the NMC532 cathode (R-024). Anode
-% data is sourced from one combined anode CSV file containing both modes.
+%% extractOCPLines.m
+% Summary: Extracts OCP-like lookup lines from half-cell GITT and slow-cycle
+%          CSV data for the graphite anode and NMC532 cathode, then combines
+%          them into a two-panel publication figure.
 %
-% Usage:   Set the 'AnodeCSV' and 'CathodeCSV' paths below (and the active-
-%          material masses massAnode_g / massCathode_g) and run the script
-%          (no arguments).
+% Usage: Set DataRoot and the active-material masses in the configuration block,
+%        then run this script with no arguments.
 %
-% Produces: Vector figure 'OCP_HalfCell.pdf' (+ .png at the same stem) plus
-%           per-figure PNG snapshots in its R-022 directory. No .fig/.mat files
-%           are written.
+% Outputs: OCP_HalfCell.png and OCP_HalfCell.pdf in this script's R-022 output
+%          directory. The script also builds intermediate anode and cathode
+%          tables in memory; no MAT files are written.
 %
-% Inputs: CSV files containing time, current, and voltage columns; cathode from MAT files
-% Outputs: Combined anode and cathode tables with mode, capacity, and voltage columns
-% Author: Copilot
-% Date: 2026-03-19   (created)
-% Last documented: 2026-08-04
+% Authors: GitHub Copilot.
+% Dependency files: Functions/getFigureOutputDir.m.
+% Last documented: 2026-09-01
 
 % Reset workspace and figures for a clean run of the first section.
 clear; close all; clc;
-addpath(fullfile(fileparts(mfilename('fullpath')), '..', '..', 'Functions'));
+scriptDir = fileparts(mfilename('fullpath'));
+functionsDir = fullfile(scriptDir, '..', '..', 'Functions');
+if ~exist(functionsDir, 'dir')
+	functionsDir = fullfile(scriptDir, '..', 'Functions');
+end
+if exist(functionsDir, 'dir')
+	addpath(functionsDir);
+else
+	error('Shared Functions folder not found from %s.', scriptDir);
+end
 fprintf('--- extractOCPLines started ---\n');
 
 %% ===================================================================

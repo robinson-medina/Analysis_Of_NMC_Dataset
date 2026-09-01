@@ -1,25 +1,28 @@
-%% Battery Test Data Analysis and Visualization (ExtractAgeingData.m)
-% Summary: Main per-cell ageing pipeline. Loads battery cell test data,
-% reconstructs and processes time gaps, calculates cumulative charge capacity,
-% and performs diagnostic analyses including checkup capacity measurements,
-% 30 s DC-pulse resistance, dV/dt (Li-stripping) analysis and the Reference
-% Performance Cycle figure. It also accumulates the cross-cell overview tables.
+%% ExtractAgeingData.m
+% Summary: Runs the per-cell ageing analysis pipeline. It loads one ageing CSV,
+%          reconstructs the time axis, computes cumulative charge, extracts
+%          checkup capacity and pulse-resistance metrics, runs dV/dt analysis,
+%          and writes the overview tables used by the ageing summary figures.
 %
-% Usage:   See the Instructions block below (run over all cells, or a single
-%          cell by setting 'cellNum').
+% Usage: Set DataRoot, DesiredFolder, and cellNum in the Configuration block,
+%        then run this script. External drivers may set cellNumOverride and
+%        folderOverride before calling run(...) to process a selected cell.
 %
-% Produces: Per-cell diagnostic figures (PNG + vector PDF in ../pngs, R-022) and
-% the cross-cell CSV tables 'OverviewResistanceData_<N>cell.csv' /
-% 'OverviewCapacityData_<N>cell.csv' (consumed by the overview plotters).
+% Outputs: Per-cell diagnostic PNG figures and overview CSV tables in this
+%          script's R-022 output directory. The source data tree is read-only.
 %
-% Inputs:  cyclic/calendar ageing CSVs under DesiredFolder (read-only, R-001).
-% Outputs: figures AND Overview*Data_*.csv in ../pngs (R-022). The dataset's
-%          own copies of the Overview CSVs are refreshed by a deliberate,
-%          reviewed copy from ../pngs - never written in place.
-%
-% Author: Feye Hoekstra, Róbinson Medina 
-% Updated: 2025-11-25
-% Last documented: 2026-08-04
+% Authors: Feye Hoekstra, Róbinson Medina.
+% Dependency files: Functions/loadAndPreprocessAgeingCsv.m,
+%                   Functions/getCellLabel.m, Functions/getFigureOutputDir.m,
+%                   Functions/findCheckupSegments.m,
+%                   Functions/analyzeCheckupDischarge.m,
+%                   Functions/extractResistanceValues.m,
+%                   Functions/analyzeDVdtAfterCharge.m,
+%                   Functions/exportOCPDischarge.m,
+%                   Functions/plotOverviewData.m,
+%                   Functions/plotCapacityAndResistanceTrending.m,
+%                   Functions/plotReferencePerformanceCycle.m.
+% Last documented: 2026-09-01
 %% Instructions
 % 1a To run the script in all cells, update the variable 'DesiredFolder' with the path to the all the cyclic
 % or calendar ageing experiments
@@ -27,24 +30,32 @@
 % and the location 'DesiredFolder' and comment the main for loop and the
 % line '    cellNum = Folders(celNumIndx).name;' inside the foor loop
 
-% Allow an external driver (e.g. a verification-run script) to preselect the
-% cell/folder via cellNumOverride/folderOverride before run(...); the guards
-% survive the clear below (todo #092).
+% Allow an external driver to preselect the cell/folder via
+% cellNumOverride/folderOverride before run(...); the guards survive the clear below.
 if exist('cellNumOverride', 'var'); keepCellOverride = cellNumOverride; end
 if exist('folderOverride', 'var'); keepFolderOverride = folderOverride; end
 clearvars -except keepCellOverride keepFolderOverride;
 % close all;
 clc;
-% Resolve Functions path relative to this script so it works from any cwd.
+% Resolve Functions path relative to this script so it works from any cwd in
+% either the JournalScripts staging layout or the public repository layout.
 scriptDir = fileparts(mfilename('fullpath'));
-addpath(fullfile(scriptDir, '..', '..', 'Functions'))
+functionsDir = fullfile(scriptDir, '..', '..', 'Functions');
+if ~exist(functionsDir, 'dir')
+    functionsDir = fullfile(scriptDir, '..', 'Functions');
+end
+if exist(functionsDir, 'dir')
+    addpath(functionsDir)
+else
+    error('Shared Functions folder not found from %s.', scriptDir);
+end
 % Publication outputs never write into the read-only ZenodoRoot tree (R-001);
 % Keep generated diagnostic artifacts together in this entry script's R-022 directory.
 journalPngsDir = getFigureOutputDir('ExtractAgeingData');
 
 
 %% Configuration
-% Single configurable dataset root (Zenodo layout, todo #055). All reads are
+% Single configurable dataset root. All reads are
 % relative to DataRoot; the script never writes into the data tree (R-001).
 DataRoot = '\\tsn.tno.nl\RA-Data\SV\sv-072952\BTS Data\NEXTBMS\ZenodoRoot';
 DesiredFolder = fullfile(DataRoot, '4_Ageing', 'Cyclic_ageing_data');

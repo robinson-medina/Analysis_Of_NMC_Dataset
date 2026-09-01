@@ -1,24 +1,24 @@
-%% Nyquist Analysis Script
-% Summary: Loads impedance data from the CSV files in an EIS folder and
-% generates Nyquist diagrams for the different State of Charge (SoC) conditions
-% contained in each '*_impedanceData.csv'.
+%% PlotEISData.m
+% Summary: Loads impedance CSV files from one ageing EIS stage folder and builds
+%          Nyquist diagrams for the available SoC conditions in each file.
 %
-% Usage:   Update the variable 'eisFolder' with the path to the EIS experiments
-%          and run the script (no arguments).
+% Usage: Set DataRoot and eisFolder in the Configuration block, then run this
+%        script. External drivers may set eisFolderOverride before calling
+%        run(...) to process a selected BoL, MoL, or EoL EIS folder.
 %
-% Produces: Stage-qualified Nyquist PNG figures in this script's R-022
-%           `Figures/matlab/PlotEISData/` output directory.
+% Outputs: Stage-qualified Nyquist PNG files in this script's R-022 output
+%          directory.
 %
-% Author: Robinson Medina
-% Date: 2026-01-22   (created)
-% Last documented: 2026-08-04
+% Authors: Róbinson Medina.
+% Dependency files: Functions/getFigureOutputDir.m, Functions/plotNyquistDiagram.m.
+% Last documented: 2026-09-01
 
 %% Instructions
 % update the variable 'eisFolder' with the path to the EIS experiments
 
 % Allow an external driver to preselect the stage folder via
 % eisFolderOverride before run(...); the guard survives the clear below
-% (todo #093).
+% for batch verification.
 if exist('eisFolderOverride', 'var'); keepEisFolderOverride = eisFolderOverride; end
 clearvars -except keepEisFolderOverride;
 close all;
@@ -27,9 +27,13 @@ clc;
 scriptDir = fileparts(mfilename('fullpath'));
 % Build the absolute path to the shared Functions folder from this script location.
 functionsDir = fullfile(scriptDir, '..', '..', 'Functions');
-% Add Functions only when the folder exists to avoid path warnings.
+if ~exist(functionsDir, 'dir')
+    functionsDir = fullfile(scriptDir, '..', 'Functions');
+end
 if exist(functionsDir, 'dir')
     addpath(functionsDir)
+else
+    error('Shared Functions folder not found from %s.', scriptDir);
 end
 %% Configuration
 % DataRoot: single switch to the dataset root holding 1_Teardown/2_HalfCell/

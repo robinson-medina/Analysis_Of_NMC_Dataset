@@ -34,9 +34,15 @@ from pathlib import Path
 import pandas as pd
 
 # Make the shared plot_nyquist_diagram() helper importable.
-_FUNCTIONS_DIR = Path(__file__).resolve().parent.parent.parent / "Functions"
-if str(_FUNCTIONS_DIR) not in sys.path:
-    sys.path.append(str(_FUNCTIONS_DIR))
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_FUNCTIONS_CANDIDATES = (_SCRIPT_DIR.parent.parent / "Functions", _SCRIPT_DIR.parent / "Functions")
+for _FUNCTIONS_DIR in _FUNCTIONS_CANDIDATES:
+    if _FUNCTIONS_DIR.exists():
+        if str(_FUNCTIONS_DIR) not in sys.path:
+            sys.path.append(str(_FUNCTIONS_DIR))
+        break
+else:
+    raise FileNotFoundError(f"Shared Functions folder not found from {_SCRIPT_DIR}")
 
 from plotNyquistDiagram import plot_nyquist_diagram  # noqa: E402
 from get_figure_output_dir import get_figure_output_dir  # noqa: E402
