@@ -15,19 +15,24 @@ function label = getCellLabel(cellNum)
 
 % Extract temperature group and channel from cellNum
 % Supported formats:
+%   - 'Cell_35' (R-025 plain form) -> looked up by cell number
 %   - 'A01_01' -> tempGroup=1, channel=1
 %   - 'A2.08_Cell_35' -> tempGroup=2, channel=8
 %   - 'A02_02' -> tempGroup=2, channel=2
 
-if contains(cellNum, '_Cell_')
-    % Format: A2.08_Cell_35
+if ~isempty(regexp(cellNum, '^Cell_\d+$', 'once'))
+    % Plain Cell_<n> (R-025): recover (tempGroup, channel) from the ageing crosswalk.
+    cellNumber = str2double(extractAfter(cellNum, 'Cell_'));
+    [tempGroup, channel] = cellNumberToGroupChannel(cellNumber);
+elseif contains(cellNum, '_Cell_')
+    % Legacy channel-prefixed form: A2.08_Cell_35
     parts = split(cellNum, '_Cell_');
     conditionCode = parts{1};
     dotIdx = strfind(conditionCode, '.');
     tempGroup = str2double(conditionCode(2:dotIdx-1));
     channel = str2double(conditionCode(dotIdx+1:end));
 else
-    % Format: A01_01 or A02_02
+    % Legacy A01_01 / A02_02 form
     parts = split(cellNum, '_');
     conditionCode = parts{1};  % e.g., 'A01'
     % tempGroup is digits 2-3 (e.g., '01' -> 1)
@@ -181,3 +186,4 @@ switch tempGroup
 end
 
 end
+

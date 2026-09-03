@@ -24,7 +24,7 @@ clear; close all; clc;
 % any current directory (same pattern as ExtractAgeingData.m).
 scriptDir = fileparts(mfilename('fullpath'));
 functionsDir = fullfile(scriptDir, '..', '..', 'Functions');
-if ~exist(functionsDir, 'dir')
+if ~exist(fullfile(functionsDir, 'getFigureOutputDir.m'), 'file')
     functionsDir = fullfile(scriptDir, '..', 'Functions');
 end
 if exist(functionsDir, 'dir')

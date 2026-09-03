@@ -8,6 +8,10 @@ Author: Converted from MATLAB to Python
 Date: 2026-02-19
 """
 
+import re
+
+from cellNumberToGroupChannel import cell_number_to_group_channel as _cell_number_to_group_channel
+
 
 def get_cell_label(cell_num):
     """
@@ -26,24 +30,27 @@ def get_cell_label(cell_num):
     
     # Extract temperature group and channel from cell_num
     # Supported formats:
+    #   - 'Cell_35' (R-025 plain form) -> looked up by cell number
     #   - 'A01_01' -> temp_group=1, channel=1
     #   - 'A2.08_Cell_35' -> temp_group=2, channel=8
     #   - 'A02_02' -> temp_group=2, channel=2
     
-    if '_Cell_' in cell_num:
-        # Format: A2.08_Cell_35
+    if re.fullmatch(r'Cell_\d+', cell_num):
+        # Plain Cell_<n> (R-025): recover (temp_group, channel) from the ageing crosswalk.
+        cell_number = int(cell_num.split('Cell_')[1])
+        temp_group, channel = _cell_number_to_group_channel(cell_number)
+    elif '_Cell_' in cell_num:
+        # Legacy channel-prefixed form: A2.08_Cell_35
         parts = cell_num.split('_Cell_')
         condition_code = parts[0]
         dot_idx = condition_code.find('.')
         temp_group = int(condition_code[1:dot_idx])
         channel = int(condition_code[dot_idx+1:])
     else:
-        # Format: A01_01 or A02_02
+        # Legacy A01_01 / A02_02 form
         parts = cell_num.split('_')
         condition_code = parts[0]  # e.g., 'A01'
-        # temp_group is digits after 'A' (e.g., '01' -> 1)
         temp_group = int(condition_code[1:])
-        # Channel is the second part
         channel = int(parts[1])
     
     # Define temperature based on group

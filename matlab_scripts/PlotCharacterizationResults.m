@@ -76,7 +76,7 @@ EIS_W_CM = 9.25;  EIS_H_CM = 5.2;                    % compact 1x3 Nyquist layou
 % --- Output location (R-022) ----------------------------------------------
 scriptDir = fileparts(mfilename('fullpath'));
 functionsDir = fullfile(scriptDir, '..', '..', 'Functions');
-if ~exist(functionsDir, 'dir')
+if ~exist(fullfile(functionsDir, 'getFigureOutputDir.m'), 'file')
     functionsDir = fullfile(scriptDir, '..', 'Functions');
 end
 if exist(functionsDir, 'dir')

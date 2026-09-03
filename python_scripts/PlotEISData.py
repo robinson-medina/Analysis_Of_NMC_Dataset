@@ -37,7 +37,7 @@ import pandas as pd
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _FUNCTIONS_CANDIDATES = (_SCRIPT_DIR.parent.parent / "Functions", _SCRIPT_DIR.parent / "Functions")
 for _FUNCTIONS_DIR in _FUNCTIONS_CANDIDATES:
-    if _FUNCTIONS_DIR.exists():
+    if (_FUNCTIONS_DIR / "get_figure_output_dir.py").exists():
         if str(_FUNCTIONS_DIR) not in sys.path:
             sys.path.append(str(_FUNCTIONS_DIR))
         break

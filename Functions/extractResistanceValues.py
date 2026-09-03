@@ -11,8 +11,15 @@ Date: November 25, 2025
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+try:  # scipy >= 1.6 renamed cumtrapz; it was removed in newer releases.
+    from scipy.integrate import cumulative_trapezoid as cumtrapz
+except ImportError:
+    from scipy.integrate import cumtrapz
 import time
 import warnings
+import re
+
+from cellNumberToGroupChannel import cell_number_to_group_channel
 
 
 def extract_resistance_values(time_with_gaps, voltage, current, time_s, 
@@ -85,11 +92,14 @@ def extract_resistance_values(time_with_gaps, voltage, current, time_s,
         return np.array([]), np.array([]), np.array([])
     
     # Calculate Full Equivalent Cycles using cumtrapz over time (to match MATLAB)
+    # Use the already time-range-filtered selected_current/selected_time_s (matches
+    # MATLAB's FullEquivalentCycles = cumtrapz(selectedTimeS, abs(selectedCurrent))/...);
+    # using the raw, unfiltered time_s here would propagate NaN gap markers through
+    # the whole cumulative integral once cumtrapz crosses the first gap.
     battery_capacity_ah = 58
-    # Use time_s for integration, ensure it's a numpy array
-    time_s = np.asarray(time_s)
-    abs_current = np.abs(np.nan_to_num(current))
-    full_equivalent_cycles = np.concatenate(([0], np.cumtrapz(abs_current, time_s))) / battery_capacity_ah / 3600 / 2
+    selected_time_s = np.asarray(selected_time_s)
+    abs_current = np.abs(np.nan_to_num(selected_current))
+    full_equivalent_cycles = np.concatenate(([0], cumtrapz(abs_current, selected_time_s))) / battery_capacity_ah / 3600 / 2
     
     # Initialize output arrays
     checkup_resistance_timestamp = []
@@ -117,11 +127,20 @@ def extract_resistance_values(time_with_gaps, voltage, current, time_s,
     
     # Define line styles for plot variation
     line_styles = ['-', '--', ':', '-.']
-    
+
+    # Determine whether this cell belongs to the A3 (45 degC) or A4 (0-45 degC)
+    # campaign, via the cell-number crosswalk (R-025: cell_num no longer carries
+    # the campaign letter as a substring, so it can't be string-matched anymore).
+    cell_digits = re.search(r'Cell_(\d+)', cell_num)
+    is_campaign_a3_or_a4 = False
+    if cell_digits:
+        temp_group, _ = cell_number_to_group_channel(int(cell_digits.group(1)))
+        is_campaign_a3_or_a4 = temp_group in (3, 4)
+
     # Loop through each pulse segment and calculate resistance
     for i, segment_indices in enumerate(segments):
         # Skip the first test for cell A3 and A4
-        if 'A3' in cell_num or 'A4' in cell_num:
+        if is_campaign_a3_or_a4:
             if i == 0:
                 continue
         

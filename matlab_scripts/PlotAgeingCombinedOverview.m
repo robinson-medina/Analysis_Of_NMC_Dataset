@@ -24,7 +24,7 @@ io_folder_cyclic   = fullfile(DataRoot, '4_Ageing', 'Cyclic_ageing_data');
 io_folder_calendar = fullfile(DataRoot, '4_Ageing', 'Calendar_ageing_data');
 scriptDir = fileparts(mfilename('fullpath'));
 functionsDir = fullfile(scriptDir, '..', '..', 'Functions');
-if ~exist(functionsDir, 'dir')
+if ~exist(fullfile(functionsDir, 'getFigureOutputDir.m'), 'file')
     functionsDir = fullfile(scriptDir, '..', 'Functions');
 end
 if exist(functionsDir, 'dir')

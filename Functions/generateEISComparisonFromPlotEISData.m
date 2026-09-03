@@ -1,7 +1,7 @@
-function generateEISComparisonFromPlotEISData(eisRootFolder, targetSoC_pct, maxFreq, scriptDir, pubFont, pubFontSize, cellNum, colBolRef, colEolRef)
+function generateEISComparisonFromPlotEISData(eisRootFolder, targetSoC_pct, maxFreq, outputDir, pubFont, pubFontSize, cellNum, colBolRef, colEolRef)
 % generateEISComparisonFromPlotEISData - build one standalone Nyquist
 % comparison figure for a selected cell at ONE SoC (default: 50%) across
-% life stages and export it as EISComparison.{pdf,png} to ../pngs.
+% life stages and export it as EISComparison.{pdf,png} to the supplied R-022 directory.
 %
 % Data layout assumption (campaign convention):
 %   EIS root contains stage folders
@@ -16,7 +16,7 @@ function generateEISComparisonFromPlotEISData(eisRootFolder, targetSoC_pct, maxF
 %   eisRootFolder - EIS root folder holding the stage subfolders
 %   targetSoC_pct - SoC (%) to plot (e.g. 50)
 %   maxFreq       - upper frequency limit [Hz] for plotted points
-%   scriptDir     - directory of the calling script (PDF/PNG saved to ../pngs)
+%   outputDir     - R-022 directory supplied by the owning entry script
 %   pubFont       - publication font (R-019)
 %   pubFontSize   - base font size (R-017)
 %   cellNum       - cell identifier (selects <cellNum>_impedanceData.csv)
@@ -62,8 +62,8 @@ end
 set(findall(fig, 'Type', 'axes'), ...
     'FontName', pubFont, 'FontSize', pubFontSize, 'TickLabelInterpreter', 'tex');
 
-eisPdf = fullfile(scriptDir, '..', 'pngs', 'EISComparison.pdf');
-eisPng = fullfile(scriptDir, '..', 'pngs', 'EISComparison.png');
+eisPdf = fullfile(outputDir, 'EISComparison.pdf');
+eisPng = fullfile(outputDir, 'EISComparison.png');
 exportgraphics(fig, eisPdf, 'ContentType', 'vector');
 exportgraphics(fig, eisPng, 'Resolution', 300);
 fprintf('EIS publication figure exported:\n  %s\n  %s\n', eisPdf, eisPng);

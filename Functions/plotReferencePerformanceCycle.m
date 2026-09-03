@@ -18,9 +18,11 @@
 %   - cellLabel: descriptive cell label string
 %   - startTime: start datetime for zoom window
 %   - endTime: end datetime for zoom window
+%   - endTime: end datetime for zoom window
+%   - outputDir: R-022 directory supplied by the owning entry script
 %   Outputs:
 %   - No explicit output. Creates one formatted figure.
-function plotReferencePerformanceCycle(timeWithGaps, current, voltage, cellTemp, chamberTemp, cumulative_integral, cellNum, cellLabel, startTime, endTime) %#ok<INUSD>
+function plotReferencePerformanceCycle(timeWithGaps, current, voltage, cellTemp, chamberTemp, cumulative_integral, cellNum, cellLabel, startTime, endTime, outputDir) %#ok<INUSD>
 
 % Keep interface parity with overview plot even though capacity is hidden in RPC.
 unused_capacity_ah = cumulative_integral; %#ok<NASGU>
@@ -87,12 +89,12 @@ end
 
 % Create a publication figure sized for a double-column (figure*) import at
 % natural size (R-021). FIG_W_CM is tuned so the tight-cropped exported PDF
-% width is ~85% of the paper text width (0.85 x 522 pt = 443.7 pt = 15.66 cm);
-% the height keeps the original 17.4:10 aspect ratio.
+% width is ~97% of the paper text width (0.97 x 522 pt = 506.3 pt = 17.86 cm,
+% R-021 amended 2026-08-12, todo #072); height keeps the 17.4:10 aspect ratio.
 fig = figure('Name', [cellNum ' - Reference Performance Cycle'], 'Color', 'w');
 fig.Units = 'centimeters';
-FIG_W_CM = 16.58;   % tuned so exported width ~= 443.7 pt (85% of textwidth)
-FIG_H_CM = 9.53;    % preserves the original 17.4:10 aspect ratio
+FIG_W_CM = 18.91;   % tuned so exported width ~= 506.3 pt (97% of textwidth)
+FIG_H_CM = 10.87;   % preserves the original 17.4:10 aspect ratio
 PUB_FONTSIZE = 8;   % main axis/label/tick/zone/legend text = paper caption (\footnotesize) size
 fig.Position(3:4) = [FIG_W_CM FIG_H_CM];
 fig.PaperPositionMode = 'auto';
@@ -105,16 +107,18 @@ tl.OuterPosition = [0 0 1 0.90];
 
 % Plot current in the top panel.
 ax1 = nexttile;
-plot(ax1, timePlot, currentPlot, 'Color', darkblue, 'LineWidth', 1.1);
+plot(ax1, timePlot, currentPlot, 'Color', darkblue, 'LineWidth', 1.0);
 ylabel(ax1, 'Current [A]', 'FontName', 'Times New Roman', 'FontSize', PUB_FONTSIZE);
 grid(ax1, 'on');
+box(ax1, 'on'); % R-017 item 6: full axes frame
 ax1.Layer = 'top';
 
 % Plot voltage in the second panel.
 ax2 = nexttile;
-plot(ax2, timePlot, voltagePlot, 'Color', darkblue, 'LineWidth', 1.1);
+plot(ax2, timePlot, voltagePlot, 'Color', darkblue, 'LineWidth', 1.0);
 ylabel(ax2, 'Voltage [V]', 'FontName', 'Times New Roman', 'FontSize', PUB_FONTSIZE);
 grid(ax2, 'on');
+box(ax2, 'on'); % R-017 item 6: full axes frame
 ax2.Layer = 'top';
 
 % Plot cell and chamber temperature in the third panel.
@@ -126,6 +130,7 @@ hold(ax3, 'off');
 ylabel(ax3, 'Temperature [\circC]', 'Interpreter', 'tex', 'FontName', 'Times New Roman', 'FontSize', PUB_FONTSIZE);
 legend(ax3, [hCell hChamber], {'Cell', 'Chamber'}, 'Location', 'southwest', 'Box', 'off', 'FontName', 'Times New Roman', 'FontSize', PUB_FONTSIZE);
 grid(ax3, 'on');
+box(ax3, 'on'); % R-017 item 6: full axes frame
 ax3.Layer = 'top';
 
 % Keep the x-axis label on the last remaining panel.
@@ -139,7 +144,7 @@ for ax = allAxes
     ax.FontSize = PUB_FONTSIZE;
     ax.LabelFontSizeMultiplier = 1;   % axis labels same size as ticks/caption (default 1.1 enlarges them)
     ax.TitleFontSizeMultiplier = 1;
-    ax.LineWidth = 0.8;
+    ax.LineWidth = 0.8;   % R-017 item 4: axes frame, not a data trace
 end
 
 % Define 4 RPC zone boundaries as editable datetime variables.
@@ -228,8 +233,8 @@ end
 hold(ax1, 'on');
 hold(ax2, 'on');
 hold(ax3, 'on');
-plot(ax1, timePlot, currentPlot, '-', 'Color', darkblue, 'LineWidth', 1.1, 'HandleVisibility', 'off');
-plot(ax2, timePlot, voltagePlot, '-', 'Color', darkblue, 'LineWidth', 1.1, 'HandleVisibility', 'off');
+plot(ax1, timePlot, currentPlot, '-', 'Color', darkblue, 'LineWidth', 1.0, 'HandleVisibility', 'off');
+plot(ax2, timePlot, voltagePlot, '-', 'Color', darkblue, 'LineWidth', 1.0, 'HandleVisibility', 'off');
 plot(ax3, timePlot, chamberTempPlot, '-', 'Color', red, 'LineWidth', 1.0, 'HandleVisibility', 'off');
 plot(ax3, timePlot, cellTempPlot, '-', 'Color', darkblue, 'LineWidth', 1.0, 'HandleVisibility', 'off');
 hold(ax1, 'off');
@@ -240,6 +245,9 @@ hold(ax3, 'off');
 grid(ax1, 'on');
 grid(ax2, 'on');
 grid(ax3, 'on');
+box(ax1, 'on'); % R-017 item 6: re-assert full axes frame after overlays
+box(ax2, 'on');
+box(ax3, 'on');
 
 % Place zone arrows/labels using the same geometry as the combined
 % characterization figure so placement stays consistent across publications.
@@ -406,12 +414,12 @@ if sum(zoomMask) > 0
     
     % Plot the voltage data in the inset.
     % Create line plot with darkblue color.
-    plot(axInset, timeZoom, voltageZoom, 'Color', darkblue, 'LineWidth', 2.5);
+    plot(axInset, timeZoom, voltageZoom, 'Color', darkblue, 'LineWidth', 1.0);
     
     % Style the inset axes.
     axInset.FontName = 'Times New Roman';
     axInset.FontSize = 8;
-    axInset.LineWidth = 1.2;
+    axInset.LineWidth = 0.8;   % R-017 item 4: axes frame, not a data trace
     axInset.Box = 'on';
     % Enable the grid using axis properties because grid(...) does not accept styling arguments here.
     axInset.XGrid = 'on';
@@ -562,7 +570,7 @@ if sum(zoomMask) > 0
     % the same absolute pixel offset the per-current-box multipliers must
     % be halved (3.0 -> 1.5 width, 2.0 -> 1.0 height).
     boxNudgeRight = 1.3;   % in units of (current) box width
-    boxNudgeDown  = 1.3;   % in units of (current) box height
+    boxNudgeDown  = 0.6;   % in units of (current) box height (1.3 -> 0.6 on 2026-08-13: user review found the voltage box too low; tuned visually so the plateau + dV spike sit inside the box)
     srcTL(1) = srcTL(1) + boxNudgeRight * srcTL(3);
     srcTL(2) = srcTL(2) - boxNudgeDown  * srcTL(4);
 
@@ -580,12 +588,12 @@ if sum(zoomMask) > 0
     boxEdgeColor   = [0 0 0];       % black
     connectorColor = [0.35 0.35 0.35];
     hBox  = annotation(fig, 'rectangle', srcTL, ...
-        'EdgeColor', boxEdgeColor, 'LineWidth', 0.5, 'LineStyle', '-', ...
+        'EdgeColor', boxEdgeColor, 'LineWidth', 0.75, 'LineStyle', '-', ...
         'FaceColor', 'none');
     hL1 = annotation(fig, 'line', [srcTL_x dstTL_x], [srcTL_y dstTL_y], ...
-        'Color', connectorColor, 'LineWidth', 0.8);
+        'Color', connectorColor, 'LineWidth', 0.75);
     hL2 = annotation(fig, 'line', [srcBR_x dstBR_x], [srcBR_y dstBR_y], ...
-        'Color', connectorColor, 'LineWidth', 0.8);
+        'Color', connectorColor, 'LineWidth', 0.75);
 
     % Iterate: force redraw, re-resolve ax2 pixel position, update box +
     % connectors. Stop when no movement is detected (typical: 1-2 passes).
@@ -675,12 +683,12 @@ if sum(zoomMask) > 0
     axInsetCurrent.Color = [1 1 1];
 
     % Plot the zoomed current trace in the same dark-blue used elsewhere.
-    plot(axInsetCurrent, timeZoom, currentZoom, 'Color', darkblue, 'LineWidth', 2.5);
+    plot(axInsetCurrent, timeZoom, currentZoom, 'Color', darkblue, 'LineWidth', 1.0);
 
     % Match the visual style of the voltage inset (font/size/grid/box).
     axInsetCurrent.FontName      = 'Times New Roman';
     axInsetCurrent.FontSize      = 8;
-    axInsetCurrent.LineWidth     = 1.2;
+    axInsetCurrent.LineWidth     = 0.8;   % R-017 item 4: axes frame, not a data trace
     axInsetCurrent.Box           = 'on';
     axInsetCurrent.XGrid         = 'on';
     axInsetCurrent.YGrid         = 'on';
@@ -826,12 +834,12 @@ if sum(zoomMask) > 0
     % Create the small rectangle and the two leader lines once; we will
     % refresh their Position/X/Y inside the stabilize loop below.
     hBoxCurrent = annotation(fig, 'rectangle', srcTLC, ...
-        'EdgeColor', currentBoxEdgeColor, 'LineWidth', 0.5, 'LineStyle', '-', ...
+        'EdgeColor', currentBoxEdgeColor, 'LineWidth', 0.75, 'LineStyle', '-', ...
         'FaceColor', 'none');
     hL1C = annotation(fig, 'line', [srcTLC_x dstTLC_x], [srcTLC_y dstTLC_y], ...
-        'Color', currentConnectorColor, 'LineWidth', 0.8);
+        'Color', currentConnectorColor, 'LineWidth', 0.75);
     hL2C = annotation(fig, 'line', [srcBRC_x dstBRC_x], [srcBRC_y dstBRC_y], ...
-        'Color', currentConnectorColor, 'LineWidth', 0.8);
+        'Color', currentConnectorColor, 'LineWidth', 0.75);
 
     % Stabilize-iterate: same idea as for the voltage rectangle. Force a
     % drawnow, re-resolve ax1's figure-normalized rect, re-apply the
@@ -910,18 +918,9 @@ annotation(fig, 'textbox', ...
     'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', ...
     'FontName', 'Times New Roman', 'FontSize', 12);
 
-% crptXStart = datetime(2024, 4, 24);   % left  end of arrow ('a')
-crptXEnd   = datetime(2024, 4, 26);   % right end of arrow ('b')crptXStart = datetime(2024, 4, 24);   % left  end of arrow ('a')
-crptXEnd   = datetime(2024, 4, 26);   % right end of arrow ('b')Export RPC figure as vector PDF in the repo-level pngs folder, following
-% the same publication export pattern used by the combined characterization figure.
+% Export the figure as a vector PDF to the entry script's R-022 directory.
 drawnow;
-scriptDir = fileparts(mfilename('fullpath'));
-saveDir = fullfile(scriptDir, '..', 'JournalScripts', 'pngs');   % R-022: single figure output dir
-if ~exist(saveDir, 'dir')
-    mkdir(saveDir);
-end
-pdfFile = fullfile(saveDir, ['NextBMS_ReferencePerformanceCycle.pdf']); %#ok<NASGU>
-% PDF export temporarily disabled while iterating on the figure layout.
+pdfFile = fullfile(outputDir, 'NextBMS_ReferencePerformanceCycle.pdf');
 exportgraphics(fig, pdfFile, 'ContentType', 'vector');
 fprintf('RPC PDF saved: %s\n', pdfFile);
 
@@ -948,9 +947,9 @@ insetBR_y = destinationFramePos(2);
 
 % Draw the two thin grey leader lines connecting matching diagonal corners.
 annotation(fig, 'line', [srcTL_x insetTL_x], [srcTL_y insetTL_y], ...
-    'Color', [0.35 0.35 0.35], 'LineWidth', 0.8);
+    'Color', [0.35 0.35 0.35], 'LineWidth', 0.75);
 annotation(fig, 'line', [srcBR_x insetBR_x], [srcBR_y insetBR_y], ...
-    'Color', [0.35 0.35 0.35], 'LineWidth', 0.8);
+    'Color', [0.35 0.35 0.35], 'LineWidth', 0.75);
 end
 
 function sourcePos = drawSourceZoomFrame(fig, sourceAxes, xStart, xEnd, yMin, yMax, frameColor)
@@ -976,7 +975,7 @@ hold(sourceAxes, 'on');
 hRect = plot(sourceAxes, ...
     [xStartPlot xEndPlot xEndPlot xStartPlot xStartPlot], ...
     [yMin yMin yMax yMax yMin], ...
-    'LineStyle', '--', 'Color', frameColor, 'LineWidth', 1.5, ...
+    'LineStyle', '--', 'Color', frameColor, 'LineWidth', 0.8, ...
     'HandleVisibility', 'off'); %#ok<NASGU>
 if ~prevHold
     hold(sourceAxes, 'off');
@@ -1087,7 +1086,7 @@ uistack(insetAxes, 'top');
 
 % Black border on top of everything to outline the white box.
 annotation(fig, 'rectangle', framePos, ...
-    'EdgeColor', [0 0 0], 'LineWidth', 0.9, 'LineStyle', '-', ...
+    'EdgeColor', [0 0 0], 'LineWidth', 0.8, 'LineStyle', '-', ...
     'FaceColor', 'none');
 end
 

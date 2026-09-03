@@ -34,6 +34,12 @@ else
     error('Shared Functions folder not found from %s.', thisDir);
 end
 
+% Own R-022 folder that collects every manuscript figure this driver produces.
+manuscriptDir = getFigureOutputDir('MakeManuscriptFigures');
+figuresMatlabRoot = fileparts(manuscriptDir);
+
+% Heavy all-cell coverage stages (ExtractAgeingData, PlotEISData) run LAST so the
+% single manuscript figures are produced and collected first during an overnight run.
 stageNames = { ...
     'characterization_combined (PlotCharacterizationData_Cell15)'; ...
     'ReferencePerformanceCycle (PlotReferencePerformanceCycleFigure_Cell68)'; ...
@@ -42,16 +48,33 @@ stageNames = { ...
     'CharacterizationResults Cell_4'; ...
     'CharacterizationResults Cell_6'; ...
     'CharacterizationResults Cell_15'; ...
-    'All cyclic/calendar cell overviews (ExtractAgeingData)'; ...
-    'All ageing EIS diagrams (PlotEISData)'; ...
     'Calendar/CyclicAgeing (PlotAgeingCombinedOverview)'; ...
-    'Cell summary Cell_22 (PlotCellSummary)'};
+    'Cell summary Cell_22 (PlotCellSummary)'; ...
+    'All cyclic/calendar cell overviews (ExtractAgeingData)'; ...
+    'All ageing EIS diagrams (PlotEISData)'};
+
+% Generator output stem for each stage; '' skips consolidation for the heavy
+% all-cell coverage stages (they write hundreds of per-cell diagnostics, not
+% single manuscript figures).
+stageStems = { ...
+    'PlotCharacterizationData_Cell15'; ...
+    'PlotReferencePerformanceCycleFigure_Cell68'; ...
+    'PlotLiStrippingMethods_Cell35'; ...
+    'extractOCPLines'; ...
+    'PlotCharacterizationResults'; ...
+    'PlotCharacterizationResults'; ...
+    'PlotCharacterizationResults'; ...
+    'PlotAgeingCombinedOverview'; ...
+    'PlotCellSummary'; ...
+    ''; ...
+    ''};
 
 nStage = numel(stageNames);
 stageOk = false(nStage, 1);
 for stageIdx = 1:nStage
     fprintf('\n[MakeManuscriptFigures] === Stage %d/%d: %s ===\n', ...
         stageIdx, nStage, stageNames{stageIdx});
+    tStageStart = now; %#ok<TNOW1> % serial date number, matches dir().datenum
     try
         switch stageIdx
             case 1, runStage(thisDir, 'PlotCharacterizationData_Cell15.m');
@@ -61,12 +84,15 @@ for stageIdx = 1:nStage
             case 5, runCharacterizationResults(thisDir, 'Cell_4');
             case 6, runCharacterizationResults(thisDir, 'Cell_6');
             case 7, runCharacterizationResults(thisDir, 'Cell_15');
-            case 8, runAllCellOverviews(thisDir);
-            case 9, runAllCellEis(thisDir);
-            case 10, runStage(thisDir, 'PlotAgeingCombinedOverview.m');
-            case 11, runStage(thisDir, 'PlotCellSummary.m');
+            case 8, runStage(thisDir, 'PlotAgeingCombinedOverview.m');
+            case 9, runStage(thisDir, 'PlotCellSummary.m');
+            case 10, runAllCellOverviews(thisDir);
+            case 11, runAllCellEis(thisDir);
         end
         stageOk(stageIdx) = true;
+        if ~isempty(stageStems{stageIdx})
+            consolidateStage(manuscriptDir, figuresMatlabRoot, stageStems{stageIdx}, tStageStart);
+        end
         fprintf('[MakeManuscriptFigures] PASS: %s\n', stageNames{stageIdx});
     catch err
         fprintf(2, '[MakeManuscriptFigures] FAIL: %s\n    %s\n', ...
@@ -82,10 +108,28 @@ for stageIdx = 1:nStage
     if stageOk(stageIdx); status = 'PASS'; else; status = 'FAIL'; end
     fprintf('  %-4s %s\n', status, stageNames{stageIdx});
 end
-fprintf('[MakeManuscriptFigures] %d/%d stages passed. Figures are in script-owned directories under %s\n', ...
-    sum(stageOk), nStage, fullfile(thisDir, '..', 'Figures', 'matlab'));
+fprintf('[MakeManuscriptFigures] %d/%d stages passed. Manuscript figures collected in %s\n', ...
+    sum(stageOk), nStage, manuscriptDir);
 
 %% Local functions (each gives the generator script a disposable workspace)
+function consolidateStage(manuscriptDir, figuresRoot, stem, tStart)
+% Copy the PDF/PNG files the stage's generator wrote (mtime >= tStart) into the
+% MakeManuscriptFigures folder so every manuscript figure lives in one place.
+srcDir = fullfile(figuresRoot, stem);
+if ~exist(srcDir, 'dir'); return; end
+files = [dir(fullfile(srcDir, '*.pdf')); dir(fullfile(srcDir, '*.png'))];
+for k = 1:numel(files)
+    if files(k).datenum + 1e-6 >= tStart
+        try
+            copyfile(fullfile(srcDir, files(k).name), fullfile(manuscriptDir, files(k).name));
+        catch copyErr
+            fprintf(2, '[MakeManuscriptFigures] WARN copy %s: %s\n', ...
+                files(k).name, copyErr.message);
+        end
+    end
+end
+end
+
 function runStage(thisDir, scriptName)
 run(fullfile(thisDir, scriptName));
 end

@@ -1,4 +1,4 @@
-function debugGITTPlot(timeWithGaps, voltage, current, gittEp, episodeName, cellNum, pngsDir)
+function debugGITTPlot(timeWithGaps, voltage, current, gittEp, episodeName, cellNum, outputDir)
 % debugGITTPlot - standalone diagnostic figure for one detected GITT
 % episode. Shows:
 %   Row 1: current vs time (full episode window with padding) with each
@@ -15,16 +15,14 @@ function debugGITTPlot(timeWithGaps, voltage, current, gittEp, episodeName, cell
 %   gittEp       - GITT episode struct (from extractGITTfromTrace) or []
 %   episodeName  - label for the episode (e.g. 'BoL' / 'EoL')
 %   cellNum      - cell identifier string
-%   pngsDir      - (optional) output directory for the saved diagnostic PNG.
-%                  Defaults to the current working directory's 'pngs' folder
-%                  if omitted. Passing the caller's ../pngs keeps every
-%                  diagnostic figure alongside the other journal outputs.
+%   outputDir     - R-022 directory supplied by the owning entry script.
 %
 % Author: GitHub Copilot (for Feye Hoekstra)
 % Date:   2026-07-28 (extracted from PlotCellSummary.m into a shared helper)
 
-if nargin < 7 || isempty(pngsDir)
-    pngsDir = fullfile(pwd, 'pngs');
+if nargin < 7 || isempty(outputDir)
+    error('debugGITTPlot:MissingOutputDir', ...
+        'An R-022 output directory must be supplied by the owning entry script.');
 end
 
 if isempty(gittEp)
@@ -132,13 +130,13 @@ for k = 1:nP
 end
 
 % Save the diagnostic figure to disk so it can be inspected when MATLAB
-% runs in -batch mode (no GUI). Uses the caller-provided pngs/ folder so
-% the diagnostic sits alongside the other journal outputs.
+% runs in -batch mode (no GUI). Uses the caller-provided R-022 folder so
+% the diagnostic stays with the owning entry script's other outputs.
 try
-    if ~exist(pngsDir, 'dir'); mkdir(pngsDir); end
+    if ~exist(outputDir, 'dir'); mkdir(outputDir); end
     safeName = sprintf('debugGITT_%s_%s.png', cellNum, episodeName);
-    exportgraphics(fig, fullfile(pngsDir, safeName), 'Resolution', 150);
-    fprintf('  Diagnostic figure saved to: %s\n', fullfile(pngsDir, safeName));
+    exportgraphics(fig, fullfile(outputDir, safeName), 'Resolution', 150);
+    fprintf('  Diagnostic figure saved to: %s\n', fullfile(outputDir, safeName));
 catch ME
     fprintf('  [debugGITTPlot] Could not save figure: %s\n', ME.message);
 end

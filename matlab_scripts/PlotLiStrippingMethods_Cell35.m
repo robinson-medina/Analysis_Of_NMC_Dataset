@@ -20,7 +20,7 @@ clear; close all; clc;
 %% Configuration
 scriptDir = fileparts(mfilename('fullpath'));
 functionsDir = fullfile(scriptDir, '..', '..', 'Functions');
-if ~exist(functionsDir, 'dir')
+if ~exist(fullfile(functionsDir, 'getFigureOutputDir.m'), 'file')
     functionsDir = fullfile(scriptDir, '..', 'Functions');
 end
 if exist(functionsDir, 'dir')

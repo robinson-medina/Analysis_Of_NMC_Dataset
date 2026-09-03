@@ -21,20 +21,29 @@ end
 % Parameters
 tolerance = 0.1;
 constantCurrentIndices = abs(selectedCurrent - constantCurrentValue) <= tolerance;
+constantCurrentIndices(isnan(selectedCurrent)) = false;
 
-if contains(cellNum,'A1') || contains(cellNum,'A2') % different sensors were used in these experiments, filtering level is also different. 
-    windowSize = 5;
-else
-    windowSize = 50;
-end
+% Site-dependent smoothing window, single-sourced (todo #061): TNO (A1/A2)
+% low-noise sensors -> 5; AIT (A3/A4) noisier sensors -> 50.
+windowSize = strippingSmoothWin(cellNum);
 
-
-% Filter for segments of appropriate length (900-1500 points)
+% Segment length limits in NOMINAL 1 Hz samples; the filter below applies
+% them as a DURATION in seconds (N samples at clean 1 Hz span N-1 s), so it
+% is invariant to the AIT files' sub-second row splitting (todo #061).
 minSegmentLength = 900;
 maxSegmentLength = 1500;
 
-% Find segments meeting criteria
-segments = findSegmentsMinMax(constantCurrentIndices, minSegmentLength, maxSegmentLength);
+% Find constant-current runs and filter by duration from the timestamps
+% (replaces the row-count-based findSegmentsMinMax, which over-counted AIT
+% rows and rejected genuine 15-25 min segments).
+edgesCC   = diff([false; constantCurrentIndices(:); false]);
+runStarts = find(edgesCC ==  1);
+runEnds   = find(edgesCC == -1) - 1;
+durS = selectedTimeS(runEnds) - selectedTimeS(runStarts);
+keep = durS >= (minSegmentLength - 1) & durS <= (maxSegmentLength - 1);
+runStarts = runStarts(keep);
+runEnds   = runEnds(keep);
+segments  = arrayfun(@(a,b) (a:b)', runStarts, runEnds, 'UniformOutput', false);
 
 % Initialize figure with voltage overview and dV/dt analysis
 figure('Units','normalized', 'OuterPosition',[0 0 0.5 1]); % Create a figure that takes up half the screen width
@@ -87,6 +96,12 @@ for idx = 1:numSegmentsToPlot
     % interpolate the voltage so the average is the same accross all
     % experiments
 
+    % Duplicate-time guard for interp1 (AIT sub-second row splits, #061).
+    % All per-segment arrays are reindexed together to stay aligned.
+    [segmentTimeS, iuSeg] = unique(segmentTimeS);
+    segmentVoltage = segmentVoltage(iuSeg);
+    segmentCurrent = segmentCurrent(iuSeg);
+    segmentTime    = segmentTime(iuSeg);
     InterpolationTime_s=0:1:max(segmentTimeS); 
     InterpolationVoltage_V = interp1(segmentTimeS,segmentVoltage,InterpolationTime_s);
 

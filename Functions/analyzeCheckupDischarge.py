@@ -11,7 +11,11 @@ Date: November 25, 2025
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.integrate import cumtrapz
+try:  # scipy >= 1.6 renamed cumtrapz; it was removed in newer releases.
+    from scipy.integrate import cumulative_trapezoid as cumtrapz
+except ImportError:
+    from scipy.integrate import cumtrapz
+from scipy.interpolate import interp1d
 import time
 
 
@@ -53,6 +57,14 @@ def analyze_checkup_discharge(segments, selected_time, selected_voltage,
         Array of FEC values at capacity measurements
     legends : list of str
         List of legend strings
+    checkup_ocv_v : list of numpy.ndarray
+        Per-checkup OCV curve interpolated onto a 100-point SoC axis (V)
+    dqdv_apervs : list of numpy.ndarray
+        Per-checkup smoothed dQ/dV vector (matches segment_voltage length)
+    segment_capacity_ah : list of numpy.ndarray
+        Per-checkup per-sample discharge-capacity vector (Ah)
+    checkup_soc : list of numpy.ndarray
+        Per-checkup 100-point SoC axis (%), paired with checkup_ocv_v
     """
     
     # Initialize output arrays
@@ -60,9 +72,15 @@ def analyze_checkup_discharge(segments, selected_time, selected_voltage,
     checkup_capacity = []
     checkup_capacity_fec = []
     legends = []
+    # MATLAB-parity extra outputs (per-segment cell arrays in analyzeCheckupDischarge.m):
+    # per-segment OCV-vs-SoC curve, dQ/dV curve, discharge-capacity vector, SoC axis.
+    checkup_ocv_v = []
+    dqdv_apervs = []
+    segment_capacity_ah = []
+    checkup_soc = []
     
-    # Create figure for plotting
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10))
+    # Create figure for plotting (3 rows: capacity-vs-V, dQ/dV-vs-V, SoC-vs-OCV - matches MATLAB)
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 12))
     
     # Calculate Full Equivalent Cycles using cumtrapz over time (to match MATLAB)
     battery_capacity_ah = 58
@@ -70,7 +88,7 @@ def analyze_checkup_discharge(segments, selected_time, selected_voltage,
     selected_time_s = np.asarray(selected_time_s)
     abs_current = np.abs(np.nan_to_num(selected_current))
     # Use cumtrapz for integration over time
-    full_equivalent_cycles = np.concatenate(([0], np.cumtrapz(abs_current, selected_time_s))) / battery_capacity_ah / 3600 / 2
+    full_equivalent_cycles = np.concatenate(([0], cumtrapz(abs_current, selected_time_s))) / battery_capacity_ah / 3600 / 2
     
     # Define line styles for plot variation
     line_styles = ['-', '--', ':', '-.']
@@ -130,6 +148,32 @@ def analyze_checkup_discharge(segments, selected_time, selected_voltage,
             checkup_capacity_timestamp.append(segment_time[0])
             checkup_capacity.append(np.max(discharge_capacity))
             checkup_capacity_fec.append(segment_fec[0])
+
+            # Store the full per-sample vectors (MATLAB SegmentCapacity_Ah / dQdV_AperVs cell arrays)
+            segment_capacity_ah.append(discharge_capacity)
+            dqdv_apervs.append(dQdV)
+
+            # SoC starts at 100% and decreases during discharge; capacity_ah is this
+            # segment's scalar checkup capacity (matches MATLAB's thisCheckup.capacity_Ah).
+            capacity_ah = np.max(discharge_capacity)
+            soc_raw = 100 - (discharge_capacity / capacity_ah) * 100
+
+            # Interpolate SoC (100 points, 100% down to the segment minimum) and the
+            # matching OCV, mirroring MATLAB's sort-descend + unique('stable') + interp1 extrap.
+            soc_vec = np.linspace(100, np.min(soc_raw), 100)
+            sort_idx = np.argsort(soc_raw)[::-1]
+            sorted_soc = soc_raw[sort_idx]
+            sorted_voltage = segment_voltage[sort_idx]
+            unique_soc, unique_idx = np.unique(sorted_soc, return_index=True)
+            unique_voltage = sorted_voltage[unique_idx]
+            ocv_interp = interp1d(unique_soc, unique_voltage, kind='linear', fill_value='extrapolate')
+            ocv_vec = ocv_interp(soc_vec)
+            checkup_soc.append(soc_vec)
+            checkup_ocv_v.append(ocv_vec)
+
+            # Plot SoC vs OCV (matches MATLAB's subplot(3,1,3))
+            ax3.plot(soc_vec, ocv_vec,
+                    linestyle=current_line_style, linewidth=1.5, color=color)
             
             # Create legend entry
             time_str = pd.Timestamp(segment_time[0]).strftime('%y-%m-%dT%H:%M')
@@ -145,6 +189,11 @@ def analyze_checkup_discharge(segments, selected_time, selected_voltage,
     ax2.set_xlabel('Cell Voltage [V]')
     ax2.set_ylabel('dQ/dV')
     ax2.grid(True, alpha=0.3)
+    
+    # Format subplot 3
+    ax3.set_xlabel('State of Charge [%]')
+    ax3.set_ylabel('OCV [V]')
+    ax3.grid(True, alpha=0.3)
     
     # Add title to figure
     if cell_label:
@@ -168,8 +217,13 @@ def analyze_checkup_discharge(segments, selected_time, selected_voltage,
     checkup_capacity_timestamp = checkup_capacity_timestamp[valid_idx]
     checkup_capacity = checkup_capacity[valid_idx]
     checkup_capacity_fec = checkup_capacity_fec[valid_idx]
+    checkup_ocv_v = [v for v, keep in zip(checkup_ocv_v, valid_idx) if keep]
+    dqdv_apervs = [v for v, keep in zip(dqdv_apervs, valid_idx) if keep]
+    segment_capacity_ah = [v for v, keep in zip(segment_capacity_ah, valid_idx) if keep]
+    checkup_soc = [v for v, keep in zip(checkup_soc, valid_idx) if keep]
     
-    return checkup_capacity_timestamp, checkup_capacity, checkup_capacity_fec, legends
+    return (checkup_capacity_timestamp, checkup_capacity, checkup_capacity_fec, legends,
+            checkup_ocv_v, dqdv_apervs, segment_capacity_ah, checkup_soc)
 
 
 def _moving_average(data, window_size):

@@ -1,4 +1,4 @@
-function liStrippingFigure(timeWithGaps, voltage, allSegs, stripMetric, params, cellNum, cellLabel, scriptDir, fontName, fontSize)
+function liStrippingFigure(timeWithGaps, voltage, allSegs, stripMetric, params, cellNum, cellLabel, outputDir, fontName, fontSize)
 % liStrippingFigure - self-contained publication figure documenting the
 % Li-stripping detection concept (A-002).
 % Layout (2x2 tiled, top tile spans 2 columns):
@@ -19,7 +19,7 @@ function liStrippingFigure(timeWithGaps, voltage, allSegs, stripMetric, params, 
 %   params       - struct with field metricWin_s = [t1 t2] (seconds)
 %   cellNum      - cell identifier string
 %   cellLabel    - descriptive label (may be empty)
-%   scriptDir    - directory of the calling script (PNG saved to ../pngs)
+%   outputDir    - R-022 directory supplied by the owning entry script
 %   fontName     - publication font (R-019)
 %   fontSize     - base font size (R-017)
 %
@@ -141,16 +141,14 @@ for k = 1:numel(allAxes)
         'TickLabelInterpreter','tex');
 end
 
-% Save as PNG (300 dpi) in pngs/. Vector PDF export is currently disabled
+% Save as PNG (300 dpi) in the entry script's R-022 directory. Vector PDF export is currently disabled
 % for this figure: with ~25 segments x dense per-segment curves it is far
 % too heavy (large file, slow render). Re-enable once the segment data
 % is decimated for the publication version. (A-002)
-pngsDir = fullfile(scriptDir, '..', 'pngs');
-if ~exist(pngsDir, 'dir'); mkdir(pngsDir); end
-pngFile = fullfile(pngsDir, [cellNum '_LiStripping.png']);
+pngFile = fullfile(outputDir, [cellNum '_LiStripping.png']);
 drawnow;
 exportgraphics(fig, pngFile, 'Resolution', 300);
-% pdfFile = fullfile(pngsDir, [cellNum '_LiStripping.pdf']);
+% pdfFile = fullfile(outputDir, [cellNum '_LiStripping.pdf']);
 % exportgraphics(fig, pdfFile, 'ContentType', 'vector');
 fprintf('Li-stripping figure saved:\n  %s\n', pngFile);
 end

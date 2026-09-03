@@ -65,9 +65,19 @@ figure('Units','normalized', 'OuterPosition',[0 0 0.5 1]); % Create a figure tha
 % Define line styles for plot variation
 lineStyles = {'-', '--', ':', '-.'};
 
+% Determine whether this cell belongs to the A3 (45 degC) or A4 (0-45 degC)
+% campaign, via the cell-number crosswalk (R-025: cellNum no longer carries
+% the campaign letter as a substring, so it can't be string-matched anymore).
+cellDigits = regexp(cellNum, 'Cell_(\d+)', 'tokens', 'once');
+isCampaignA3orA4 = false;
+if ~isempty(cellDigits)
+    [tempGroup, ~] = cellNumberToGroupChannel(str2double(cellDigits{1}));
+    isCampaignA3orA4 = ismember(tempGroup, [3 4]);
+end
+
 % Loop through each pulse segment and calculate resistance
 for i = 1:length(segments)
-    if contains(cellNum,'A3') || contains(cellNum,'A4')
+    if isCampaignA3orA4
         if i==1 % skip the first test of cell A3 and A4. 
             continue
         end

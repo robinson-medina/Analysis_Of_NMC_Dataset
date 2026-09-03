@@ -59,7 +59,8 @@ def plot_capacity_and_resistance_trending(checkup_capacity_timestamp, checkup_ca
     y_limits1 = ax1.get_ylim()
     y_offset1 = y_limits1[0] - 0.05 * (y_limits1[1] - y_limits1[0])
     for i, (ts, fec) in enumerate(zip(checkup_capacity_timestamp, checkup_capacity_fec)):
-        ax1.text(ts, y_offset1, f'({int(round(fec))})', 
+        fec_label = 'NaN' if np.isnan(fec) else str(int(round(fec)))
+        ax1.text(ts, y_offset1, f'({fec_label})', 
                 ha='center', va='top', fontsize=8, clip_on=False)
     
     # Create two-line xlabel
@@ -79,7 +80,8 @@ def plot_capacity_and_resistance_trending(checkup_capacity_timestamp, checkup_ca
     y_limits2 = ax2.get_ylim()
     y_offset2 = y_limits2[0] - 0.05 * (y_limits2[1] - y_limits2[0])
     for i, (ts, fec) in enumerate(zip(checkup_resistance_timestamp, checkup_resistance_fec)):
-        ax2.text(ts, y_offset2, f'({int(round(fec))})', 
+        fec_label = 'NaN' if np.isnan(fec) else str(int(round(fec)))
+        ax2.text(ts, y_offset2, f'({fec_label})', 
                 ha='center', va='top', fontsize=8, clip_on=False)
     
     # Create two-line xlabel

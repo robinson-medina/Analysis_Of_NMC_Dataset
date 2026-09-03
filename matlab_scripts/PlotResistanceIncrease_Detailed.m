@@ -28,7 +28,7 @@ io_folder_calendar = fullfile(DataRoot, '4_Ageing', 'Calendar_ageing_data');
 % Primary publication output location (R-022).
 scriptDir = fileparts(mfilename('fullpath'));
 functionsDir = fullfile(scriptDir, '..', '..', 'Functions');
-if ~exist(functionsDir, 'dir')
+if ~exist(fullfile(functionsDir, 'getFigureOutputDir.m'), 'file')
     functionsDir = fullfile(scriptDir, '..', 'Functions');
 end
 if exist(functionsDir, 'dir')

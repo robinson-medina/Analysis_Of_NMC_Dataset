@@ -7,7 +7,10 @@ splitting by NaN gaps to maintain data integrity.
 """
 
 import numpy as np
-from scipy.integrate import cumtrapz
+try:  # scipy >= 1.6 renamed cumtrapz; it was removed in newer releases.
+    from scipy.integrate import cumulative_trapezoid as cumtrapz
+except ImportError:
+    from scipy.integrate import cumtrapz
 import time
 
 

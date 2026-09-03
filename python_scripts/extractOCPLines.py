@@ -41,7 +41,7 @@ from scipy.interpolate import PchipInterpolator
 SCRIPT_DIR = Path(__file__).resolve().parent
 FUNCTIONS_CANDIDATES = (SCRIPT_DIR.parent.parent / "Functions", SCRIPT_DIR.parent / "Functions")
 for FUNCTIONS_DIR in FUNCTIONS_CANDIDATES:
-    if FUNCTIONS_DIR.exists():
+    if (FUNCTIONS_DIR / "get_figure_output_dir.py").exists():
         if str(FUNCTIONS_DIR) not in sys.path:
             sys.path.append(str(FUNCTIONS_DIR))
         break

@@ -27,7 +27,7 @@ clc;
 scriptDir = fileparts(mfilename('fullpath'));
 % Build the absolute path to the shared Functions folder from this script location.
 functionsDir = fullfile(scriptDir, '..', '..', 'Functions');
-if ~exist(functionsDir, 'dir')
+if ~exist(fullfile(functionsDir, 'getFigureOutputDir.m'), 'file')
     functionsDir = fullfile(scriptDir, '..', 'Functions');
 end
 if exist(functionsDir, 'dir')
