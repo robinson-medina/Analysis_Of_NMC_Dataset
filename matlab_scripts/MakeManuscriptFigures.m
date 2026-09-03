@@ -21,7 +21,7 @@
 %                   matlab_scripts/PlotAgeingCombinedOverview.m,
 %                   matlab_scripts/PlotCellSummary.m,
 %                   Functions/getFigureOutputDir.m.
-% Last documented: 2026-09-01
+% Last documented: 2026-09-03
 
 thisDir = fileparts(mfilename('fullpath'));
 functionsDir = fullfile(thisDir, '..', '..', 'Functions');
@@ -49,7 +49,7 @@ stageNames = { ...
     'CharacterizationResults Cell_6'; ...
     'CharacterizationResults Cell_15'; ...
     'Calendar/CyclicAgeing (PlotAgeingCombinedOverview)'; ...
-    'Cell summary Cell_22 (PlotCellSummary)'; ...
+    'Cell summary Cell_35 (PlotCellSummary)'; ...
     'All cyclic/calendar cell overviews (ExtractAgeingData)'; ...
     'All ageing EIS diagrams (PlotEISData)'};
 
@@ -85,7 +85,7 @@ for stageIdx = 1:nStage
             case 6, runCharacterizationResults(thisDir, 'Cell_6');
             case 7, runCharacterizationResults(thisDir, 'Cell_15');
             case 8, runStage(thisDir, 'PlotAgeingCombinedOverview.m');
-            case 9, runStage(thisDir, 'PlotCellSummary.m');
+            case 9, runCellSummary(thisDir, 'Cell_35');
             case 10, runAllCellOverviews(thisDir);
             case 11, runAllCellEis(thisDir);
         end
@@ -139,6 +139,12 @@ function runCharacterizationResults(thisDir, cellId)
 % cellNumOverride hook (outputs are cell-tagged, so runs do not overwrite).
 cellNumOverride = cellId;  %#ok<NASGU> % consumed by the script's guard block
 run(fullfile(thisDir, 'PlotCharacterizationResults.m'));
+end
+
+function runCellSummary(thisDir, cellId)
+% Run the manuscript's selected example-cell summary via the supported override.
+cellNumOverride = cellId; %#ok<NASGU> % consumed by PlotCellSummary.m
+run(fullfile(thisDir, 'PlotCellSummary.m'));
 end
 
 function runAllCellOverviews(thisDir)

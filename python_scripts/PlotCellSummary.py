@@ -40,6 +40,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib import cm
+from matplotlib import dates as mdates
 
 matplotlib.rcParams['font.family'] = 'serif'
 matplotlib.rcParams['font.serif'] = ['Times New Roman']
@@ -77,6 +78,7 @@ _COL_DARKBLUE = (1 / 255, 17 / 255, 181 / 255)
 _COL_RED = (255 / 255, 0, 0)
 _COL_BLACK = (0.0, 0.0, 0.0)
 PUB_FONTSIZE = 8
+COMPACT_FONTSIZE = 7
 
 
 def _find_segments(mask, min_length):
@@ -265,8 +267,14 @@ def main(cell_num='Cell_22', desired_folder=None):
     # ==========================================================================
     # Main A4 summary figure
     # ==========================================================================
-    fig = plt.figure(figsize=(18.05 / 2.54, 22.00 / 2.54))
-    gs = fig.add_gridspec(7, 6, hspace=0.55, wspace=0.9)
+    fig = plt.figure(figsize=(18.05 / 2.54, 34.00 / 2.54))
+    gs = fig.add_gridspec(
+        7, 6,
+        height_ratios=(1, 1, 1, 1.05, 1.05, 1.25, 1.25),
+        hspace=0.72,
+        wspace=0.75,
+    )
+    fig.subplots_adjust(left=0.11, right=0.90, top=0.985, bottom=0.055)
 
     ax_i = fig.add_subplot(gs[0, :])
     ax_i.plot(time_index, current, color=_COL_DARKBLUE, linewidth=1.0)
@@ -311,7 +319,6 @@ def main(cell_num='Cell_22', desired_folder=None):
                         markeredgecolor=_COL_RED, markerfacecolor=res_colors[i], markersize=5)
     ax_res.set_ylabel('R$_{RPT}$ [m\u03a9]', color=_COL_RED)
     ax_res.tick_params(axis='y', labelcolor=_COL_RED)
-    ax_cap_res.set_xlabel('Date')
     ax_cap_res.set_title('Capacity and resistance vs age', fontweight='normal')
     ax_cap_res.grid(True)
 
@@ -364,9 +371,29 @@ def main(cell_num='Cell_22', desired_folder=None):
     ax_ocp.set_title('C/50 OCV curves', fontweight='normal')
     ax_ocp.grid(True)
 
+    # The five full-width panels share one date range. Show date labels only on
+    # the final panel so tick text cannot collide with titles in the row below.
+    temporal_axes = (ax_i, ax_v, ax_t, ax_cap_res, ax_dvdt)
+    for temporal_ax in temporal_axes:
+        date_locator = mdates.AutoDateLocator(minticks=4, maxticks=7)
+        temporal_ax.xaxis.set_major_locator(date_locator)
+    for temporal_ax in temporal_axes[:-1]:
+        temporal_ax.tick_params(axis='x', labelbottom=False)
+    ax_dvdt.xaxis.set_major_formatter(mdates.DateFormatter('%b\n%Y'))
+    ax_dvdt.set_xlabel('')
+
     # --- Publication styling on every axes (R-017/R-019) ---------------------
     for ax in fig.get_axes():
-        ax.tick_params(labelsize=PUB_FONTSIZE)
+        is_compact_panel = ax in (ax_dqdv, ax_eis, ax_ocv, ax_ocp)
+        text_size = COMPACT_FONTSIZE if is_compact_panel else PUB_FONTSIZE
+        ax.tick_params(labelsize=text_size)
+        ax.xaxis.label.set_fontsize(text_size)
+        ax.yaxis.label.set_fontsize(text_size)
+        ax.title.set_fontsize(text_size)
+        legend = ax.get_legend()
+        if legend is not None:
+            for legend_text in legend.get_texts():
+                legend_text.set_fontsize(text_size)
         for label in ax.get_xticklabels() + ax.get_yticklabels():
             label.set_fontname('Times New Roman')
         for spine in ax.spines.values():
@@ -375,8 +402,8 @@ def main(cell_num='Cell_22', desired_folder=None):
 
     png_file = os.path.join(pngs_dir, f'{cell_num}_Summary.png')
     pdf_file = os.path.join(pngs_dir, f'{cell_num}_Summary.pdf')
-    fig.savefig(png_file, dpi=300)
-    fig.savefig(pdf_file)
+    fig.savefig(png_file, dpi=300, bbox_inches='tight')
+    fig.savefig(pdf_file, bbox_inches='tight')
     print(f'\nSummary figure saved:\n  {png_file}\n  {pdf_file}')
 
 

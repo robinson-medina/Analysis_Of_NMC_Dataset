@@ -129,8 +129,8 @@ def main():
     results.append(('PlotAgeingCombinedOverview', ok, err))
 
     ok, err = _run_stage(
-        'PlotCellSummary (example cell: Cell_22_Summary.pdf)',
-        lambda: importlib.import_module('PlotCellSummary').main(cell_num='Cell_22'),
+        'PlotCellSummary (example cell: Cell_35_Summary.pdf)',
+        lambda: importlib.import_module('PlotCellSummary').main(cell_num='Cell_35'),
         stems=('PlotCellSummary',))
     results.append(('PlotCellSummary', ok, err))
 
