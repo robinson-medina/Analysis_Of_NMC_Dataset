@@ -1,2 +1,8 @@
 __pycache__/
 *.pyc
+
+# Local, temporary script-validation plan.
+temp.md
+
+# Generated MATLAB and Python figure outputs at the repository root.
+/Figures/
