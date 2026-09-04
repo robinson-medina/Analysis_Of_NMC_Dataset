@@ -39,7 +39,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib import cm
 from matplotlib import dates as mdates
 
 matplotlib.rcParams['font.family'] = 'serif'
@@ -186,7 +185,7 @@ def main(cell_num='Cell_22', desired_folder=None):
     # DECISION: viridis (truncated to 88%) substitutes for MATLAB's parula
     # (no matplotlib built-in); see module docstring.
     if n_valid > 0:
-        cmap = cm.get_cmap('viridis')
+        cmap = matplotlib.colormaps['viridis']
         checkup_colors = [cmap(0.88 * i / max(n_valid - 1, 1)) for i in range(n_valid)]
     else:
         checkup_colors = []

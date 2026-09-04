@@ -146,11 +146,9 @@ def build_combined_characterization_figure(data_folder: str, pngs_dir: str) -> N
     print('Building combined characterization figure...')
     print('=' * 40)
 
-    # Config: 5 characterization phases in chronological order, all under one
-    # per-cell folder. NOTE: this cell (Cell_6) is intentionally different from
-    # the per-file loop's cell (the alphabetically-first subfolder, Cell_15) -
-    # that is genuine current MATLAB behaviour, not a bug.
-    char_cell = 'Cell_6'
+    # Config: 5 characterization phases in chronological order, all under the
+    # Cell_15 folder processed by this fixed-cell script.
+    char_cell = 'Cell_15'
     char_cell_dir = os.path.join(data_folder, char_cell)
     phase_configs = [
         {'filepath': os.path.join(char_cell_dir, f'{char_cell}_1-Formation.csv'), 'label': 'Initialization'},

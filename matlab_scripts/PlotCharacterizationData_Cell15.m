@@ -357,7 +357,7 @@ end
 %% Configuration: Phase File Paths and Labels
 % Define the 5 characterization phase files in chronological order
 % All five phases live in one per-cell folder under dataFolder (DataRoot-derived).
-charCell    = 'Cell_6';
+charCell    = 'Cell_15';
 charCellDir = fullfile(dataFolder, charCell);
 phaseConfigs = struct( ...
     'filepath', { ...
@@ -769,7 +769,7 @@ fprintf('Combined characterization figure complete!\n');
 %% Summary
 fprintf('\n########################################\n');
 fprintf('Processing complete!\n');
-fprintf('Processed %d subfolder(s)\n', length(subfolders));
+fprintf('Processed %d subfolder(s)\n', min(1, length(subfolders)));
 fprintf('Figures saved to respective subfolders\n');
 fprintf('========================================\n');
 fprintf('Combined figure exported to:\n');

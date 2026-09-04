@@ -9,7 +9,7 @@ names and the `CellNum` / `CellLabel` columns of `OverviewCapacityData_36cell.cs
 `OverviewCapacityData_5cell.csv`, which are the authoritative source.
 
 ## 0°C
-| Channel | New ID | Type | DoD (V-based) | Average SoC | Charge | Discharge | Effect |
+| Channel | ID | Type | DoD (V-based) | Average SoC | Charge | Discharge | Effect |
 |---|---|---|---|---|---|---|---|
 | 1 | Cell_57 | Calendar ageing | 0% (4.35V) | 1 | 0 | 0 |  |
 | 2 | Cell_60 | CC cycle | 100%: (2.75V-4.35V) | 0.5 | 0.5 | 0.5 | Monitor effect of Temp |
@@ -24,7 +24,7 @@ Channels 4–8 (Cell_66, Cell_71, Cell_72, Cell_74) were stopped after middle-of
 and reused to run the three 25 °C consistency replicates (Cell_56, Cell_89, Cell_93).
 
 ## 25°C
-| Channel | New ID | Type | DoD (V-based) | Average SoC | Charge | Discharge | Effect |
+| Channel | ID | Type | DoD (V-based) | Average SoC | Charge | Discharge | Effect |
 |---|---|---|---|---|---|---|---|
 | 1 | Cell_11 | Calendar ageing | 0% (4.35V) | 1 | 0 | 0 |  |
 | 2 | Cell_12 | CC cycle | 100%: (2.75V-4.35V) | 0.5 | 0.5 | 0.5 | Monitor effect of Temp (baseline) |
@@ -42,7 +42,7 @@ and reused to run the three 25 °C consistency replicates (Cell_56, Cell_89, Cel
 | 11 | Cell_42 | Drive cycle | 100%: (2.75V-4.35V) | 0.5 | 0.5 | | Validation (automotive profile) |
 
 ## 45°C
-| Channel | New ID | Type | DoD (V-based) | Average SoC | Charge | Discharge | Effect |
+| Channel | ID | Type | DoD (V-based) | Average SoC | Charge | Discharge | Effect |
 |---|---|---|---|---|---|---|---|
 | 1 | Cell_45 | Calendar ageing | 0% (3.474V) | 0.1 | 0 | 0 | Monitor effect of SOC |
 | 2 | Cell_26 | Calendar ageing | 0% (3.706V) | 0.5 | 0 | 0 | Monitor effect of SOC |
@@ -60,7 +60,7 @@ and reused to run the three 25 °C consistency replicates (Cell_56, Cell_89, Cel
 | 14 | Cell_25 | Drive cycle | 100%: (2.75V-4.35V) | 0.5 | 0.5 | | Validation (automotive profile) |
 
 ## 0°C – 45°C (Dynamic Temperature)
-| Channel | New ID | Type | DoD (V-based) | Average SoC | Charge | Discharge | Effect |
+| Channel | ID | Type | DoD (V-based) | Average SoC | Charge | Discharge | Effect |
 |---|---|---|---|---|---|---|---|
 | 1 | Cell_49 | CC cycle | 100%: (2.75V-4.35V) | 0.5 | 0.5 | 0.5 | Reference conditions |
 | 2 | Cell_50 | Load cycle | | 0.5 | | | Validation (stationary-storage profile) |

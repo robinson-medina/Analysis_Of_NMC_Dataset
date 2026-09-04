@@ -273,8 +273,8 @@ scientific analysis; exact visual or numerical parity should not be assumed.
 
 ## Licensing
 
-* **Data** - Creative Commons **CC BY-4.0**
-* **Code snippets** - MIT
+- **Code:** All code in this repository is licensed under the [MIT License](LICENSE).
+- **Data:** The separately distributed dataset is licensed under the Creative Commons [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) license.
 
 ## Authors and contacts
 
