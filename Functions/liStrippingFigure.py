@@ -11,6 +11,7 @@ Date: 2026-08-24
 
 import os
 
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -27,7 +28,7 @@ def li_stripping_figure(time_with_gaps, voltage, all_segs, strip_metric, params,
         print('[liStrippingFigure] No segments to plot; figure skipped.')
         return
 
-    cmap = cm.get_cmap('viridis', max(n_seg, 2))
+    cmap = matplotlib.colormaps['viridis'].resampled(max(n_seg, 2))
     cols = [cmap(i / max(n_seg - 1, 1)) for i in range(n_seg)]
 
     fig = plt.figure(figsize=(17.4 / 2.54, 14 / 2.54))
