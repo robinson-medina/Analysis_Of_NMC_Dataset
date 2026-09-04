@@ -14,6 +14,12 @@ Compliance: R-004, R-012.
 
 import numpy as np
 
+try:
+    # NumPy >= 2.0 name (np.trapz was deprecated in 2.0 and removed in 2.5).
+    _trapz = np.trapezoid
+except AttributeError:  # pragma: no cover - NumPy < 2.0 fallback
+    _trapz = np.trapz
+
 _DEFAULTS = {
     'pulseAmp_A': 11.6, 'pulseTol_A': 0.5, 'maxPulseAmp_A': 20,
     'minPulse_s': 60, 'maxPulse_s': 3600, 'minPulseCharge_Ah': 0.15,
@@ -86,7 +92,7 @@ def extract_gitt_from_trace(time_with_gaps, voltage, current, time_s, params):
             continue
         if len(i_pulse) < 2:
             continue
-        q_pulse_ah = np.trapz(i_pulse, t_pulse) / 3600
+        q_pulse_ah = _trapz(i_pulse, t_pulse) / 3600
         if abs(q_pulse_ah) < p['minPulseCharge_Ah']:
             continue
         mode = 'discharge' if np.nanmean(current[s:e + 1]) < 0 else 'charge'
@@ -200,7 +206,7 @@ def extract_gitt_from_trace(time_with_gaps, voltage, current, time_s, params):
             dur_s = time_s[e] - time_s[s]
             tk, ik = time_s[s:e + 1], current[s:e + 1]
             m = ~np.isnan(tk) & ~np.isnan(ik)
-            qk = np.trapz(ik[m], tk[m]) / 3600 if np.count_nonzero(m) >= 2 else 0.0
+            qk = _trapz(ik[m], tk[m]) / 3600 if np.count_nonzero(m) >= 2 else 0.0
             if (not np.isnan(dur_s) and dur_s > max_single_pulse_dur_s) or abs(qk) > max_single_pulse_charge_ah:
                 n_keep = k
                 break
@@ -222,7 +228,7 @@ def extract_gitt_from_trace(time_with_gaps, voltage, current, time_s, params):
             tk, ik = time_s[s:e + 1], current[s:e + 1]
             m = ~np.isnan(tk) & ~np.isnan(ik)
             if np.count_nonzero(m) >= 2:
-                q_per_pulse_ah[k] = np.trapz(ik[m], tk[m]) / 3600
+                q_per_pulse_ah[k] = _trapz(ik[m], tk[m]) / 3600
 
         # OCV anchors.
         ocv_idx = np.zeros(n_p + 1, dtype=int)
